@@ -1,17 +1,9 @@
 # =============================================================================
 # AVISO DE PROPIEDAD INTELECTUAL Y DERECHOS DE AUTOR
 # =============================================================================
-# Proyecto: IANC H2O - Sistema Integral de Auditoría de Acueductos
-# Versión: 2.0 (Arquitectura Modular Pro)
-# Autor: Ing. Adolfo Barrera Vargas
-# Ubicación: Colombia
-# 
-# (c) Copyright 2026. Todos los derechos reservados.
-# 
-# Este software y sus algoritmos (Core Hydraulics) están protegidos por las 
-# leyes de derecho de autor en Colombia (Ley 23 de 1982). Queda prohibida la 
-# reproducción total o parcial, comunicación pública, transformación o 
-# distribución sin la autorización expresa y por escrito del autor.
+# Proyecto: IANC H2O - Auditoría Técnica de Acueductos
+# Autor: Ing. Adolfo Barrera Vargas | Versión: 2.5 (Móvil-Pro)
+# (c) Copyright 2026. Todos los derechos reservados. Colombia.
 # =============================================================================
 
 import streamlit as st
@@ -22,135 +14,113 @@ import pandas as pd
 import streamlit.components.v1 as components
 
 # --- IMPORTACIÓN DESDE EL CEREBRO (CORE) ---
-# Traemos la lógica, los datos y las constantes desde nuestra carpeta privada
 from core import (
-    haversine, 
-    perdida_hazen_williams, 
-    territorios, 
-    PROGRAMA_NOMBRE, 
-    AUTOR, 
-    EMPRESA_DEFAULT
+    haversine, perdida_hazen_williams, territorios, 
+    PROGRAMA_NOMBRE, AUTOR, EMPRESA_DEFAULT
 )
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(
-    page_title="IANC H2O - Auditoría Profesional", 
-    layout="wide", 
-    page_icon="📡"
-)
+st.set_page_config(page_title="IANC H2O Pro", layout="wide", page_icon="📡")
 
-# Inyección del Manifiesto PWA (Para que el celular lo reconozca como App)
-components.html(
-    f'<link rel="manifest" href="./static/manifest.json">', 
-    height=0
-)
+# Inyección PWA para el celular
+components.html(f'<link rel="manifest" href="./static/manifest.json">', height=0)
 
-# --- ENCABEZADO PRINCIPAL ---
-st.title("📡 TABLERO DE CONTROL IANC H2O")
-st.subheader(PROGRAMA_NOMBRE)
-st.markdown(f"**Líder del Proyecto:** {AUTOR}")
-st.divider()
-
-# --- MENÚ LATERAL (SIDEBAR) ---
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3105/3105807.png", width=100)
-st.sidebar.header("📂 MENÚ DE CONTROL")
-
-modo = st.sidebar.radio(
-    "Seleccione Modo de Trabajo:", 
-    ["Simulación Interactiva", "Operación Real (Carga Lote)"]
-)
-
-st.sidebar.divider()
-
-# Selección de Municipio desde core.config
-mun_sel = st.sidebar.selectbox("Municipio de Operación:", list(territorios.keys()))
-datos_mun = territorios[mun_sel]
-
-# Parámetros Técnicos
-costo_m3 = st.sidebar.number_input(
-    "Costo del m³ (COP)", 
-    value=datos_mun['costo']
-)
-dn = st.sidebar.selectbox(
-    "Diámetro Red Auditada (Pulg)", 
-    [2, 3, 4, 6, 8, 10, 12], 
-    index=2
-)
-
-# --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
-for key, default in [
-    ('puntos', []), ('ejecutado', False), ('empresa', EMPRESA_DEFAULT),
-    ('analisis_listo', False)
-]:
+# --- INICIALIZACIÓN DE ESTADOS (PERSISTENCIA MÓVIL) ---
+variables_estado = {
+    'puntos': [], 'ejecutado': False, 'empresa': EMPRESA_DEFAULT,
+    'res_distancia': 0.0, 'res_perdida': 0.0, 'procesado_real': False,
+    'df_resultados': None
+}
+for key, default in variables_estado.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# =================================================================
-# CUERPO DE LA APLICACIÓN
-# =================================================================
+# --- ENCABEZADO ---
+st.title("📡 IANC H2O - AUDITORÍA PRO")
+st.caption(f"**Tecnología:** {PROGRAMA_NOMBRE} | **Autor:** {AUTOR}")
+st.divider()
 
-if modo == "Simulación Interactiva":
-    st.write(f"### 🕹️ Simulador: {mun_sel}")
-    st.session_state.empresa = st.text_input("Entidad Prestadora del Servicio:", st.session_state.empresa)
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        st.info("Haga clic en el mapa para ubicar los sensores de presión y flujo.")
-        # Mapa centrado según coordenadas del municipio en core.config
-        m = folium.Map(location=datos_mun['coords'], zoom_start=15)
-        
-        # Lógica de marcadores
-        for i, p in enumerate(st.session_state.puntos):
-            folium.Marker(p, popup=f"Punto {i+1}", icon=folium.Icon(color='blue')).add_to(m)
-            
-        mapa_data = st_folium(m, width=800, height=500)
-        
-        # Captura de clics en el mapa
-        if mapa_data['last_clicked']:
-            punto = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
-            if punto not in st.session_state.puntos:
-                st.session_state.puntos.append(punto)
-                st.rerun()
+# --- SIDEBAR ---
+st.sidebar.header("🕹️ PANEL DE CONTROL")
+modo = st.sidebar.radio("Modo:", ["Simulación Interactiva", "Operación Real (Lote)"])
 
-    with col2:
-        st.write("#### 📍 Puntos de Control")
-        if st.session_state.puntos:
-            for i, p in enumerate(st.session_state.puntos):
-                st.write(f"P{i+1}: {p[0]:.4f}, {p[1]:.4f}")
-            
-            if st.button("🗑️ Limpiar"):
-                st.session_state.puntos = []
-                st.session_state.ejecutado = False
-                st.rerun()
-                
-            if st.button("🚀 EJECUTAR CÁLCULOS"):
-                if len(st.session_state.puntos) < 2:
-                    st.warning("Se requieren al menos 2 puntos para calcular pérdidas.")
-                else:
-                    st.session_state.ejecutado = True
-
-# --- RESULTADOS DEL MOTOR HIDRÁULICO ---
-if st.session_state.ejecutado and modo == "Simulación Interactiva":
-    st.divider()
-    st.success("✅ Análisis Hidráulico Finalizado")
-    
-    # Ejemplo de uso de las funciones del core
-    p1, p2 = st.session_state.puntos[0], st.session_state.puntos[1]
-    distancia = haversine(p1[0], p1[1], p2[0], p2[1])
-    
-    # Cálculo de pérdida (Ejemplo con caudal de 10 LPS y C de 140)
-    perdida = perdida_hazen_williams(10, 140, dn, distancia)
-    
-    res_col1, res_col2 = st.columns(2)
-    res_col1.metric("Distancia del Tramo", f"{distancia:.2f} m")
-    res_col2.metric("Pérdida Estimada (hf)", f"{perdida:.4f} PSI")
-
-elif modo == "Operación Real (Carga Lote)":
-    st.write("### 📊 Auditoría por Carga de Datos")
-    st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
-    st.info("Módulo configurado para procesamiento masivo de sensores IoT.")
-
-# --- PIE DE PÁGINA ---
 st.sidebar.divider()
-st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | Estándares CRA")
+mun_sel = st.sidebar.selectbox("Municipio:", list(territorios.keys()))
+costo_m3 = st.sidebar.number_input("Costo m³", value=territorios[mun_sel]['costo'])
+dn = st.sidebar.selectbox("Diámetro (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
+
+# --- MODO 1: SIMULACIÓN INTERACTIVA ---
+if modo == "Simulación Interactiva":
+    st.write(f"### 📍 Simulación: {mun_sel}")
+    
+    # Carga de Plano GIS
+    with st.sidebar.expander("🗺️ Capas GIS"):
+        archivo_gis = st.file_uploader("Subir Red (.geojson)", type=["geojson", "json"])
+
+    # Mapa persistente y responsivo
+    m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
+    
+    if archivo_gis:
+        try:
+            folium.GeoJson(json.load(archivo_gis), name="Red").add_to(m)
+        except: st.sidebar.error("Error en GeoJSON")
+
+    for i, p in enumerate(st.session_state.puntos):
+        folium.Marker(p, popup=f"P{i+1}", icon=folium.Icon(color='blue')).add_to(m)
+
+    mapa_data = st_folium(m, key="mapa_campo", width="100%", height=450, use_container_width=True)
+
+    # Captura de puntos optimizada para táctil
+    if mapa_data.get('last_clicked'):
+        nuevo_p = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
+        if not st.session_state.puntos or nuevo_p != st.session_state.puntos[-1]:
+            st.session_state.puntos.append(nuevo_p)
+            st.rerun()
+
+    # Botones de Acción
+    c_btn1, c_btn2 = st.columns(2)
+    if c_btn1.button("🚀 EJECUTAR CÁLCULOS", use_container_width=True):
+        if len(st.session_state.puntos) >= 2:
+            p1, p2 = st.session_state.puntos[-2], st.session_state.puntos[-1]
+            st.session_state.res_distancia = haversine(p1[0], p1[1], p2[0], p2[1])
+            st.session_state.res_perdida = perdida_hazen_williams(15, 140, dn, st.session_state.res_distancia)
+            st.session_state.ejecutado = True
+        else: st.warning("⚠️ Marque 2 puntos.")
+    
+    if c_btn2.button("🗑️ LIMPIAR", use_container_width=True):
+        st.session_state.puntos = []
+        st.session_state.ejecutado = False
+        st.rerun()
+
+    # Resultados Persistentes
+    if st.session_state.ejecutado:
+        st.success("✅ Diagnóstico Finalizado")
+        res1, res2 = st.columns(2)
+        res1.metric("Longitud Tramo", f"{st.session_state.res_distancia:.2f} m")
+        res2.metric("Pérdida (PSI)", f"{st.session_state.res_perdida:.4f}")
+        st.info(f"Costo proyectado: ${(st.session_state.res_distancia * costo_m3 / 10):,.0f} COP/mes")
+
+# --- MODO 2: OPERACIÓN REAL (CSV) ---
+elif modo == "Operación Real (Lote)":
+    st.write("### 📊 Procesamiento de Auditoría Real")
+    
+    with st.expander("🛠️ Generar Plantilla de Pruebas"):
+        df_test = pd.DataFrame({'caudal':[12.5, 15.0], 'distancia':[100, 200]})
+        st.download_button("📥 Bajar Plantilla", df_test.to_csv(index=False).encode('utf-8'), 
+                           "plantilla_ianc.csv", "text/csv", use_container_width=True)
+
+    archivo_csv = st.file_uploader("Subir CSV de Campo", type=["csv"])
+    if archivo_csv:
+        df = pd.read_csv(archivo_csv)
+        if st.button("🚀 PROCESAR AUDITORÍA", use_container_width=True):
+            if 'caudal' in df.columns and 'distancia' in df.columns:
+                df['perdida_psi'] = df.apply(lambda r: perdida_hazen_williams(r['caudal'], 140, dn, r['distancia']), axis=1)
+                st.session_state.df_resultados = df
+                st.session_state.procesado_real = True
+            else: st.error("Faltan columnas 'caudal' o 'distancia'")
+
+    if st.session_state.procesado_real:
+        st.success("✅ Resultados:")
+        st.dataframe(st.session_state.df_resultados, use_container_width=True)
+
+st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | CRA Standard")
