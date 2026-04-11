@@ -58,6 +58,8 @@ if 'puntos' not in st.session_state: st.session_state.puntos = []
 if 'ejecutado' not in st.session_state: st.session_state.ejecutado = False
 if 'presiones' not in st.session_state: st.session_state.presiones = []
 if 'cotas' not in st.session_state: st.session_state.cotas = []
+if 'caudales' not in st.session_state: st.session_state.caudales = []
+if 'distancias' not in st.session_state: st.session_state.distancias = []
 if 'empresa' not in st.session_state: st.session_state.empresa = "Administración Municipal"
 
 # =================================================================
@@ -106,7 +108,36 @@ if modo == "Simulación Interactiva":
 elif modo == "Operación Real (Carga Lote)":
     st.write("### 📊 Modo: Operación por Lote (Auditoría Técnica)")
     
-    with st.expander("⚠️ PROTOCOLO DE INFORMACIÓN TÉCNICA REQUERIDA", expanded=True):
+    with st.expander("⚠️ PROTOCOLO DE VALIDACIÓN DE ESQUEMA (CSV)", expanded=True):
         st.markdown("""
-        Para obtener resultados de **localización exacta**, el archivo CSV debe contener:
-        * **municipio**: Cruce
+        Para garantizar la precisión algorítmica y descartar la interpolación lineal, el sistema exige estrictamente las siguientes columnas:
+        * **municipio**: Llave de territorio.
+        * **id_sensor**: Identificador de hardware.
+        * **latitud / longitud**: Coordenadas espaciales.
+        * **cota_z**: Elevación (msnm).
+        * **presion_psi**: Medición directa de la celda de carga.
+        * **caudal_lps**: Flujo reportado por macromedición (L/s).
+        * **distancia_m**: Longitud real física de la tubería entre nodos.
+        """)
+        
+        ejemplo_data = {
+            "municipio": ["Villeta", "Villeta"],
+            "id_sensor": ["SC-01", "SC-02"],
+            "latitud": [5.01402, 5.01453],
+            "longitud": [-74.47201, -74.47254],
+            "cota_z": [842.45, 841.10],
+            "presion_psi": [42.5, 31.8],
+            "caudal_lps": [5.2, 5.2],
+            "distancia_m": [112.5, 108.0]
+        }
+        st.table(pd.DataFrame(ejemplo_data))
+
+    csv_file = st.file_uploader("Subir CSV Maestro de Auditoría", type=["csv"])
+    if csv_file:
+        df = pd.read_csv(csv_file)
+        
+        # Validación estricta del esquema del DataFrame
+        columnas_requeridas = ['latitud', 'longitud', 'presion_psi', 'cota_z', 'caudal_lps', 'distancia_m']
+        columnas_faltantes = [col for col in columnas_requeridas if col not in df.columns]
+        
+        if
