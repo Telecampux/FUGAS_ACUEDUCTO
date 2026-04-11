@@ -1,37 +1,55 @@
 import os
+import streamlit as st
 import pandas as pd
 import json
-import streamlit as st
+from pathlib import Path
 
-# --- ANCLAJE DE DIRECTORIO ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Definimos la carpeta con el nombre exacto que usted prefiere
-FOLDER_SIM = os.path.join(BASE_DIR, "datos_simulacion")
+# =================================================================
+# 1. ANCLAJE MILIMÉTRICO DE RUTAS (PRO-ARCHITECTURE)
+# =================================================================
 
-# Aseguramos que la carpeta exista para evitar errores de ruta
-if not os.path.exists(FOLDER_SIM):
-    os.makedirs(FOLDER_SIM)
+# Obtenemos la ruta absoluta de donde está ESTE archivo app.py
+# No importa desde dónde se ejecute, PATH_RAIZ siempre será 'ianc_h2o_pro'
+PATH_RAIZ = Path(__file__).parent.absolute()
 
-def obtener_archivos(extension):
-    """Escanea la carpeta 'datos_simulacion' buscando archivos específicos."""
-    return [f for f in os.listdir(FOLDER_SIM) if f.endswith(extension)]
+# Definimos la carpeta de datos de simulación
+FOLDER_SIM = PATH_RAIZ / "datos_simulacion"
 
-# --- INTERFAZ DE CARGA DINÁMICA ---
-st.sidebar.header("📂 BANCO DE DATOS")
+# Forzamos la creación si no existe
+FOLDER_SIM.mkdir(parents=True, exist_ok=True)
 
-# 1. Selector de Cartografía (GeoJSON)
-planos_disponibles = obtener_archivos(".geojson") + obtener_archivos(".json")
-if planos_disponibles:
-    plano_sel = st.sidebar.selectbox("🗺️ Seleccionar Plano (Simulación):", planos_disponibles)
-    with open(os.path.join(FOLDER_SIM, plano_sel), 'r') as f:
+# Obligamos al sistema operativo a que su "Directorio de Trabajo" sea este
+os.chdir(PATH_RAIZ)
+
+# =================================================================
+# 2. LÓGICA DE EXPLORACIÓN AUTOMÁTICA
+# =================================================================
+
+def listar_archivos_locales(extension):
+    """Busca archivos solo dentro de la carpeta del proyecto."""
+    return [f.name for f in FOLDER_SIM.glob(f"*{extension}")]
+
+# --- INTERFAZ SIDEBAR ---
+st.sidebar.title("📂 GESTIÓN DE ARCHIVOS")
+st.sidebar.info(f"📍 Directorio Activo: {PATH_RAIZ.name}")
+
+# Selector de Cartografía (GeoJSON)
+planos = listar_archivos_locales(".geojson") + listar_archivos_locales(".json")
+if planos:
+    plano_sel = st.sidebar.selectbox("🗺️ Plano en /datos_simulacion:", planos)
+    ruta_plano = FOLDER_SIM / plano_sel
+    with open(ruta_plano, 'r', encoding='utf-8') as f:
         cartografia_activa = json.load(f)
+    st.sidebar.success(f"✅ Cargado: {plano_sel}")
 else:
-    st.sidebar.info("💡 Suba archivos .geojson a /datos_simulacion")
+    st.sidebar.warning("⚠️ No hay .geojson en /datos_simulacion")
 
-# 2. Selector de Auditorías (CSV)
-csv_disponibles = obtener_archivos(".csv")
-if csv_disponibles:
-    csv_sel = st.sidebar.selectbox("📊 Seleccionar CSV (Simulación):", csv_disponibles)
-    df_simulacion = pd.read_csv(os.path.join(FOLDER_SIM, csv_sel))
+# Selector de Auditorías (CSV)
+auditorias = listar_archivos_locales(".csv")
+if auditorias:
+    csv_sel = st.sidebar.selectbox("📊 Auditoría en /datos_simulacion:", auditorias)
+    ruta_csv = FOLDER_SIM / csv_sel
+    df_actual = pd.read_csv(ruta_csv)
+    st.sidebar.success(f"✅ Cargado: {csv_sel}")
 else:
-    st.sidebar.info("💡 Suba archivos .csv a /datos_simulacion")
+    st.sidebar.warning("⚠️ No hay .csv en /datos_simulacion")
