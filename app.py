@@ -1,10 +1,11 @@
 import streamlit as st
-import pandas as pd
-import folium
-from streamlit_folium import st_folium
-import os
+import json
+from pathlib import Path
 
-# Configuración de la página (Debe ser la primera instrucción de Streamlit)
+# -----------------------------------------------------------------------------
+# 1. Configuración Global de la Aplicación
+# Debe ser la primera instrucción de Streamlit
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="IANC H2O Auditoría",
     page_icon="💧",
@@ -12,80 +13,55 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 1. INYECCIÓN DE METADATOS PWA (Opcional pero recomendado para el Manifest)
-def add_pwa_headers():
-    st.markdown(
-        f"""
-        <link rel="manifest" href="./static/manifest.json">
-        <meta name="theme-color" content="#000000">
-        """,
-        unsafe_allow_html=True
-    )
+# -----------------------------------------------------------------------------
+# 2. Inyección de PWA (Manifest)
+# -----------------------------------------------------------------------------
+def inyectar_pwa():
+    """Lee el manifest.json y lo inyecta en el <head> de la aplicación."""
+    manifest_path = Path("static/manifest.json")
+    if manifest_path.exists():
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest_json = json.load(f)
+            # Inyección de metadatos en el DOM mediante HTML
+            st.markdown(
+                f"""
+                <link rel="manifest" href="data:application/json;base64,{json.dumps(manifest_json).encode().hex()}">
+                <meta name="theme-color" content="{manifest_json.get('theme_color', '#000000')}">
+                """,
+                unsafe_allow_html=True
+            )
 
-# 2. CARGA DE ESTILOS CSS PERSONALIZADOS
-def local_css():
-    st.markdown("""
-        <style>
-        .main { background-color: #f5f7f9; }
-        .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        </style>
-        """, unsafe_allow_html=True)
+# -----------------------------------------------------------------------------
+# 3. Importación de Módulos Core (Lógica de Negocio)
+# -----------------------------------------------------------------------------
+# Aquí importaremos las funciones que segmentaremos en la carpeta core/
+# Ejemplo: from core.procesamiento import cargar_datos, analizar_simulacion
+# Ejemplo: from core.visualizacion import renderizar_mapa
 
-# 3. LÓGICA DE NAVEGACIÓN (Sidebar)
+# -----------------------------------------------------------------------------
+# 4. Controlador Principal (Main)
+# -----------------------------------------------------------------------------
 def main():
-    add_pwa_headers()
-    local_css()
+    inyectar_pwa()
     
-    st.sidebar.image("https://via.placeholder.com/150", caption="IANC H2O Pro") # Reemplazar con logo real
-    st.sidebar.title("Navegación")
+    st.title("💧 Plataforma de Auditoría IANC H2O")
+    st.sidebar.header("Panel de Control")
     
-    menu = ["Dashboard", "Simulación", "Mapa de Auditoría", "Reportes"]
-    choice = st.sidebar.selectbox("Seleccione un módulo", menu)
-
-    st.title(f"📊 Módulo: {choice}")
-    st.divider()
-
-    # 4. RUTEO DE MÓDULOS
-    if choice == "Dashboard":
-        render_dashboard()
-    elif choice == "Simulación":
-        render_simulation()
-    elif choice == "Mapa de Auditoría":
-        render_map()
-    elif choice == "Reportes":
-        st.info("Módulo de reportes en desarrollo.")
-
-# --- DEFINICIÓN DE INTERFACES POR MÓDULO ---
-
-def render_dashboard():
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Eficiencia Hídrica", "85%", "+2%")
-    col2.metric("Consumo Estimado", "1,200 m³", "-50 m³")
-    col3.metric("Puntos Críticos", "4", "Estable")
+    # -- Estructura de Navegación o Control de Estado --
+    menu = st.sidebar.selectbox(
+        "Navegación",
+        ["Dashboard Principal", "Análisis de Simulación", "Configuración"]
+    )
     
-    st.subheader("Resumen de Datos Recientes")
-    # Aquí podrías cargar un dataframe de ejemplo o real
-    df_placeholder = pd.DataFrame({'Mes': ['Ene', 'Feb', 'Mar'], 'Consumo': [400, 420, 380]})
-    st.line_chart(df_placeholder.set_index('Mes'))
-
-def render_simulation():
-    st.subheader("Parámetros de Simulación")
-    with st.form("sim_form"):
-        flujo = st.slider("Flujo de entrada (L/s)", 0, 100, 50)
-        presion = st.number_input("Presión de red (bar)", 1.0, 10.0, 3.5)
-        submit = st.form_submit_button("Ejecutar Simulación")
+    if menu == "Dashboard Principal":
+        st.subheader("Vista General")
+        st.info("Aquí se integrará la lógica de visualización principal (Mapas, KPIs).")
+        # Aquí irá: renderizar_mapa(datos)
         
-        if submit:
-            with st.spinner("Procesando modelos físicos..."):
-                # Aquí llamarías a una función en ianc_h2o_pro/core/calculos.py
-                st.success(f"Simulación completada para {flujo} L/s y {presion} bar.")
-
-def render_map():
-    st.subheader("Geolocalización de Auditoría")
-    # Coordenadas iniciales (ejemplo)
-    m = folium.Map(location=[4.6097, -74.0817], zoom_start=12)
-    folium.Marker([4.6097, -74.0817], popup="Punto de Control Principal").add_to(m)
-    st_folium(m, width=700, height=450)
+    elif menu == "Análisis de Simulación":
+        st.subheader("Procesamiento de Datos")
+        st.warning("Módulo de procesamiento pendiente de integración.")
+        # Aquí irá: analizar_simulacion()
 
 if __name__ == "__main__":
     main()
