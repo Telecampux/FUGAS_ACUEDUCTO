@@ -1,111 +1,107 @@
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
 
-# ==========================================
-# 1. ENCABEZADOS FIJOS (Nunca desaparecen)
-# ==========================================
+# 1. Configuración Principal
 st.set_page_config(page_title="Tablero IANC H2O", layout="wide")
 
 st.title("📡 TABLERO DE CONTROL IANC H2O")
-st.subheader("Líder del Proyecto: ING. ADOLFO BARRERA VARGAS")
+st.subheader("Ing. Adolfo Barrera Vargas - Gestión de Sensores")
 st.markdown("---")
 
-# ==========================================
-# 2. MENÚ LATERAL (El dashboard que se había perdido)
-# ==========================================
-st.sidebar.title("⚙️ Panel de Control")
-modo_operacion = st.sidebar.radio(
-    "Seleccione el origen de datos:",
-    ["Datos Reales (Campo)", "Simulación (Prueba)"]
-)
+# 2. Panel Lateral y Botón de Reinicio
+st.sidebar.title("⚙️ Panel de Operación")
+
+# BOTÓN DE REINICIO DE MEMORIA
+if st.sidebar.button("🔄 Reiniciar Tablero / Limpiar Memoria"):
+    st.cache_data.clear()
+    st.rerun()
 
 st.sidebar.markdown("---")
 
-# ==========================================
-# 3. LÓGICA DE CARGA (Depende del menú)
-# ==========================================
-df = None # Inicializamos la variable vacía
+modo = st.sidebar.radio(
+    "Seleccione el origen de la información:",
+    ["1. Seleccione una opción...", "2. Simulación (Prueba rápida)", "3. Datos Reales (Subir CSV)"]
+)
 
-if modo_operacion == "Datos Reales (Campo)":
-    st.sidebar.info("Modo de campo activo. Suba el archivo maestro.")
-    uploaded_file = st.sidebar.file_uploader("Cargar Archivo (.csv)", type=["csv"])
+# 3. Inicializar tabla vacía
+df = pd.DataFrame()
+
+# ==========================================
+# LÓGICA 1: SIMULACIÓN DIRECTA
+# ==========================================
+if modo == "2. Simulación (Prueba rápida)":
+    st.sidebar.success("Modo Simulación Activo")
+    # Creamos datos sintéticos obligatorios
+    df = pd.DataFrame({
+        'id_sensor': ['SIM-01', 'SIM-02', 'SIM-03', 'SIM-04'],
+        'municipio': ['Villeta', 'Villeta', 'Villeta', 'Villeta'],
+        'presion_psi': [45.5, 50.2, 38.9, 42.1],
+        'material': ['PVC', 'HDPE', 'PVC', 'Hierro'],
+        'lat': [5.0140, 5.0144, 5.0148, 5.0152],
+        'lon': [-74.4720, -74.4723, -74.4726, -74.4729]
+    })
+
+# ==========================================
+# LÓGICA 2: DATOS REALES
+# ==========================================
+elif modo == "3. Datos Reales (Subir CSV)":
+    st.sidebar.info("Cargue su archivo de Villeta.")
+    archivo = st.sidebar.file_uploader("Subir Archivo (.csv)", type=["csv"])
     
-    if uploaded_file is not None:
+    if archivo:
         try:
-            # Leer y limpiar datos
-            df = pd.read_csv(uploaded_file, sep=None, engine='python')
-            df.columns = df.columns.str.strip().str.lower()
-            df['latitud'] = pd.to_numeric(df['latitud'], errors='coerce')
-            df['longitud'] = pd.to_numeric(df['longitud'], errors='coerce')
-            df['presion_psi'] = pd.to_numeric(df['presion_psi'], errors='coerce')
-            df = df.dropna(subset=['latitud', 'longitud'])
+            # Lectura y normalización forzada
+            temp_df = pd.read_csv(archivo, sep=None, engine='python')
+            temp_df.columns = temp_df.columns.str.strip().str.lower()
+            
+            # Renombramos a 'lat' y 'lon' para compatibilidad obligatoria
+            if 'latitud' in temp_df.columns:
+                temp_df = temp_df.rename(columns={'latitud': 'lat'})
+            if 'longitud' in temp_df.columns:
+                temp_df = temp_df.rename(columns={'longitud': 'lon'})
+                
+            temp_df['lat'] = pd.to_numeric(temp_df['lat'], errors='coerce')
+            temp_df['lon'] = pd.to_numeric(temp_df['lon'], errors='coerce')
+            
+            # Guardamos solo si hay datos válidos
+            df = temp_df.dropna(subset=['lat', 'lon'])
+            
+            if df.empty:
+                st.error("El archivo se subió, pero no tiene coordenadas válidas.")
         except Exception as e:
-            st.error(f"Error al leer el archivo: {e}")
-
-elif modo_operacion == "Simulación (Prueba)":
-    st.sidebar.warning("Modo Simulación: Cargando datos sintéticos de Villeta.")
-    # Generamos datos de prueba automáticamente si elige simulación
-    datos_simulados = {
-        'id_sensor': ['SIM-01', 'SIM-02', 'SIM-03'],
-        'municipio': ['Villeta', 'Villeta', 'Villeta'],
-        'presion_psi': [45.5, 50.2, 38.9],
-        'material': ['PVC', 'HDPE', 'PVC'],
-        'latitud': [5.0140, 5.0145, 5.0150],
-        'longitud': [-74.4720, -74.4725, -74.4730]
-    }
-    df = pd.DataFrame(datos_simulados)
+            st.error(f"Error técnico al leer el archivo: {e}")
 
 # ==========================================
-# 4. CÁLCULOS Y VISUALIZACIÓN (Solo si hay datos)
+# VISUALIZACIÓN (Se ejecuta automáticamente si 'df' tiene datos)
 # ==========================================
-if df is not None and not df.empty:
+if not df.empty:
+    st.write("### 🧮 Cálculos de Auditoría")
     
-    # --- MÓDULO DE CÁLCULOS ---
-    st.write("### 🧮 Cálculos y Auditoría de Red")
-    col_m1, col_m2, col_m3 = st.columns(3)
+    # Cuadros de cálculo matemáticos
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Sensores Activos", len(df))
     
-    with col_m1:
-        st.metric("Sensores Activos", len(df))
-    with col_m2:
-        municipio = str(df['municipio'].iloc[0]).capitalize() if 'municipio' in df.columns else "N/A"
-        st.metric("Sector Detectado", municipio)
-    with col_m3:
-        promedio_psi = df['presion_psi'].mean() if 'presion_psi' in df.columns else 0
-        st.metric("Presión Promedio Red", f"{promedio_psi:.2f} PSI")
+    mun = df['municipio'].iloc[0] if 'municipio' in df.columns else "Villeta"
+    c2.metric("Municipio", str(mun).capitalize())
+    
+    if 'presion_psi' in df.columns:
+        df['presion_psi'] = pd.to_numeric(df['presion_psi'], errors='coerce')
+        c3.metric("Presión Promedio", f"{df['presion_psi'].mean():.2f} PSI")
+    else:
+        c3.metric("Presión Promedio", "No disp.")
 
     st.markdown("---")
-
-    # --- MÓDULO VISUAL (Tabla y Mapa) ---
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        st.write("### 📊 Registro Detallado")
-        columnas_mostrar = [col for col in ['id_sensor', 'presion_psi', 'material', 'latitud', 'longitud'] if col in df.columns]
-        st.dataframe(df[columnas_mostrar], use_container_width=True)
-
-    with col2:
-        st.write("### 🗺️ Georreferenciación")
-        centro_lat = df['latitud'].mean()
-        centro_lon = df['longitud'].mean()
+    
+    col_tabla, col_mapa = st.columns([1, 1])
+    
+    with col_tabla:
+        st.write("### 📊 Datos Registrados")
+        st.dataframe(df, use_container_width=True)
         
-        # El mapa de Folium configurado correctamente
-        m = folium.Map(location=[centro_lat, centro_lon], zoom_start=15)
+    with col_mapa:
+        st.write("### 🗺️ Mapa Integrado")
+        # El mapa nativo no sufre de bloqueos de navegador
+        st.map(df, latitude='lat', longitude='lon', color='#0044ff', size=30)
 
-        for _, row in df.iterrows():
-            id_sens = row.get('id_sensor', 'Desconocido')
-            pres = row.get('presion_psi', 'N/A')
-            folium.Marker(
-                location=[row['latitud'], row['longitud']],
-                popup=f"Sensor: {id_sens} | Presión: {pres} PSI",
-                icon=folium.Icon(color='blue', icon='tint')
-            ).add_to(m)
-
-        # Carga del mapa sin bloqueo
-        st_folium(m, width=500, height=400, key="mapa_final", returned_objects=[])
-
-elif df is not None and df.empty:
-    st.error("El archivo se cargó, pero no tiene coordenadas válidas.")
-else:
-    st.info("👈 Seleccione una opción en el menú lateral para iniciar.")
+elif modo == "1. Seleccione una opción...":
+    st.info("👈 Utilice el panel izquierdo para seleccionar el modo de trabajo.")
