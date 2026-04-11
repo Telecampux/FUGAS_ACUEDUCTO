@@ -47,4 +47,109 @@ modo = st.sidebar.radio("Modo de Trabajo:", ["Simulación Interactiva", "Operaci
 st.sidebar.divider()
 mun_sel = st.sidebar.selectbox("Municipio Objeto", list(territorios.keys()))
 costo_m3 = st.sidebar.number_input("Costo m³ (COP)", value=territorios[mun_sel]['costo'])
-dn = st.sidebar.selectbox("Diámetro de Red Auditada (P
+opciones_dn = [2, 3, 4, 6, 8, 10, 12]
+dn = st.sidebar.selectbox("Diámetro de Red Auditada (Pulg)", opciones_dn, index=2)
+
+# --- CARGA DE CARTOGRAFÍA (GIS) ---
+st.sidebar.subheader("🗺️ Capas Geográficas")
+archivo_gis = st.sidebar.file_uploader("Subir Plano del Acueducto (.geojson)", type=["geojson", "json"])
+
+# --- ESTADO DE SESIÓN ---
+if 'puntos' not in st.session_state: st.session_state.puntos = []
+if 'ejecutado' not in st.session_state: st.session_state.ejecutado = False
+if 'presiones' not in st.session_state: st.session_state.presiones = []
+if 'cotas' not in st.session_state: st.session_state.cotas = []
+if 'empresa' not in st.session_state: st.session_state.empresa = "Administración Municipal"
+
+# =================================================================
+# ENTRADAS
+# =================================================================
+if modo == "Simulación Interactiva":
+    st.write("### 🕹️ Modo: Simulación Interactiva")
+    st.session_state.empresa = st.text_input("Nombre de la Empresa:", st.session_state.empresa)
+    
+    if st.sidebar.button("♻️ Reiniciar Nodos"):
+        st.session_state.puntos = []
+        st.session_state.ejecutado = False
+        st.rerun()
+
+    m1 = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
+    carto = json.load(archivo_gis) if archivo_gis else cargar_cartografia_simulada(mun_sel)
+    folium.GeoJson(carto, style_function=lambda x: {'color': '#00FFFF', 'weight': 5, 'opacity': 0.5}).add_to(m1)
+    
+    for i, p in enumerate(st.session_state.puntos):
+        folium.Marker(p, popup=f"S{i+1}", icon=folium.Icon(color='blue')).add_to(m1)
+    
+    mapa_click = st_folium(m1, width=1100, height=400, key=f"sim_{mun_sel}_{len(st.session_state.puntos)}")
+    
+    if mapa_click and mapa_click.get("last_clicked"):
+        clicked = [mapa_click["last_clicked"]["lat"], mapa_click["last_clicked"]["lng"]]
+        if not st.session_state.puntos or clicked != st.session_state.puntos[-1]:
+            st.session_state.puntos.append(clicked)
+            st.rerun()
+
+    if len(st.session_state.puntos) >= 2:
+        st.write("---")
+        pres_list, cota_list = [], []
+        cols = st.columns(len(st.session_state.puntos))
+        for i in range(len(st.session_state.puntos)):
+            with cols[i]:
+                p_val = st.number_input(f"Presión S{i+1}", value=45.0-(i*8.0), key=f"psim_{i}")
+                z_calc = territorios[mun_sel]['z_base']-(i*1.0)
+                z_val = st.number_input(f"Cota S{i+1}", value=z_calc, key=f"zsim_{i}")
+                pres_list.append(p_val); cota_list.append(z_val)
+        
+        if st.button("🚀 EJECUTAR CÁLCULOS"):
+            st.session_state.presiones = pres_list
+            st.session_state.cotas = cota_list
+            st.session_state.ejecutado = True
+            st.rerun()
+
+elif modo == "Operación Real (Carga Lote)":
+    st.write("### 📊 Modo: Operación por Lote (Auditoría Técnica)")
+    csv_file = st.file_uploader("Subir CSV Maestro de Auditoría", type=["csv"])
+    if csv_file:
+        df = pd.read_csv(csv_file)
+        st.dataframe(df, use_container_width=True)
+        if st.button("🚀 PROCESAR AUDITORÍA REAL"):
+            st.session_state.puntos = df[['latitud', 'longitud']].values.tolist()
+            st.session_state.presiones = df['presion_psi'].tolist()
+            st.session_state.cotas = df['cota_z'].tolist()
+            st.session_state.empresa = f"Auditoría: {df['municipio'].iloc[0]}" if 'municipio' in df.columns else "Externo"
+            st.session_state.ejecutado = True
+            st.rerun()
+
+# =================================================================
+# RESULTADOS
+# =================================================================
+if st.session_state.ejecutado:
+    st.divider()
+    st.subheader(f"📑 Auditoría Técnica: {st.session_state.empresa}")
+    m_final = folium.Map(location=st.session_state.puntos[0], zoom_start=18)
+    
+    for i in range(len(st.session_state.puntos) - 1):
+        p1, p2 = st.session_state.presiones[i], st.session_state.presiones[i+1]
+        z1, z2 = st.session_state.cotas[i], st.session_state.cotas[i+1]
+        lat1, lon1 = st.session_state.puntos[i]
+        lat2, lon2 = st.session_state.puntos[i+1]
+        
+        dist_tramo = haversine(lat1, lon1, lat2, lon2)
+        dz_psi = (z1 - z2) / 0.703
+        caida_real = (p1 + dz_psi) - p2
+        
+        with st.expander(f"🔍 TRABAJO DE CAMPO: Tramo {i+1} ➔ {i+2}", expanded=True):
+            if caida_real > 0.5:
+                l_s = round(((caida_real**0.5) * 2.8) * (dn/3), 2)
+                f_dist = min(0.98, (caida_real/(p1 + (z1/0.703)))*2.5) 
+                dist_fuga = round(dist_tramo * f_dist, 1)
+                st.error(f"⚠️ Fuga detectada a {dist_fuga} metros.")
+                
+                r = dist_fuga/dist_tramo if dist_tramo > 0 else 0
+                flat, flon = lat1 + (lat2-lat1)*r, lon1 + (lon2-lon1)*r
+                folium.Marker([flat, flon], icon=folium.Icon(color='red', icon='wrench', prefix='fa')).add_to(m_final)
+                folium.PolyLine([[lat1, lon1], [lat2, lon2]], color='red', weight=5).add_to(m_final)
+            else:
+                st.success("✅ Tramo sin anomalías significativas.")
+                folium.PolyLine([[lat1, lon1], [lat2, lon2]], color='green', weight=3).add_to(m_final)
+
+    st_folium(m_final, width=1100, height=500, key="mapa_final")
