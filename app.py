@@ -12,49 +12,48 @@ uploaded_file = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=
 
 if uploaded_file is not None:
     try:
-        # Intentamos leer el archivo
-        df = pd.read_csv(uploaded_file)
+        # --- SOLUCIÓN DE FONDO: Autodetectar si es coma o punto y coma ---
+        # Leemos las primeras líneas para saber qué usa el archivo
+        content = uploaded_file.getvalue().decode('utf-8')
+        separador = ';' if content.count(';') > content.count(',') else ','
         
-        # 1. Advertencia de limpieza de nombres
+        # Volvemos al inicio del archivo y leemos con el separador correcto
+        uploaded_file.seek(0)
+        df = pd.read_csv(uploaded_file, sep=separador)
+        
+        # Limpieza de nombres de columnas
         df.columns = df.columns.str.strip().str.lower()
-        
-        # 2. VALIDACIÓN CRÍTICA: ¿Existen las columnas?
-        tiene_lat = 'latitud' in df.columns
-        tiene_lon = 'longitud' in df.columns
 
-        if not tiene_lat or not tiene_lon:
-            st.error("🛑 ERROR DE FORMATO DETECTADO")
-            st.warning(f"El programa busca 'latitud' y 'longitud', pero encontró: {list(df.columns)}")
-            st.info("💡 Por favor, renombre las columnas de su archivo CSV para que coincidan.")
+        # --- DIAGNÓSTICO VISUAL ---
+        st.info(f"Sistema: Leyendo archivo con separador '{separador}'")
         
+        if df.empty:
+            st.error("El archivo se leyó pero no contiene datos.")
         else:
-            # 3. VALIDACIÓN DE DATOS VACÍOS
-            antes = len(df)
-            df = df.dropna(subset=['latitud', 'longitud'])
-            despues = len(df)
-
-            if despues == 0:
-                st.error("❌ ARCHIVO VACÍO: Todas las filas tienen coordenadas nulas o mal escritas.")
-            else:
-                if antes > despues:
-                    st.warning(f"⚠️ Se omitieron {antes - despues} filas por falta de coordenadas.")
-
-                st.success(f"✅ Procesando {despues} sensores IoT.")
-
-                # Visualización
+            # Verificamos si existen las columnas necesarias
+            columnas_reales = list(df.columns)
+            
+            if 'latitud' in columnas_reales and 'longitud' in columnas_reales:
+                df = df.dropna(subset=['latitud', 'longitud'])
+                
                 col1, col2 = st.columns([1, 1])
                 with col1:
                     st.write("### 📊 Datos de Auditoría")
                     st.dataframe(df)
-
                 with col2:
-                    st.write("### 🗺️ Ubicación Geográfica")
-                    m = folium.Map(location=[df.latitud.mean(), df.longitud.mean()], zoom_start=13)
+                    st.write("### 🗺️ Mapa de Sensores")
+                    centro_lat = pd.to_numeric(df['latitud']).mean()
+                    centro_lon = pd.to_numeric(df['longitud']).mean()
+                    m = folium.Map(location=[centro_lat, centro_lon], zoom_start=13)
                     for i, row in df.iterrows():
-                        folium.Marker([row['latitud'], row['longitud']], popup=f"ID: {i}").add_to(m)
+                        folium.Marker([row['latitud'], row['longitud']], popup=f"Punto {i}").add_to(m)
                     st_folium(m, width="100%", height=450)
+            else:
+                st.error("🛑 COLUMNAS NO ENCONTRADAS")
+                st.write("El archivo tiene estas columnas:", columnas_reales)
+                st.write("Pero el programa necesita: **latitud** y **longitud**")
+                # Mostramos lo que el programa "ve" para entender el error
+                st.write("Muestra de datos crudos detectados:", df.head(3))
 
     except Exception as e:
-        st.error(f"💥 Error inesperado al leer el archivo: {e}")
-else:
-    st.info("📥 Por favor, cargue el archivo .csv para iniciar la auditoría.")
+        st.error(f"Error al procesar: {e}")
