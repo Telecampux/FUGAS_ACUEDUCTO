@@ -1,8 +1,7 @@
 # =============================================================================
-# PROYECTO: IANC H2O - LOCALIZACIÓN DE FUGAS Y AUDITORÍA TÉCNICA
+# PROYECTO: IANC H2O - LOCALIZACIÓN DE FUGAS Y AUDITORÍA
 # INGENIERÍA: Ing. Adolfo Barrera Vargas
-# VERSIÓN: 17.0 (Master Release - Ingeniería de Resiliencia)
-# ESTÁNDARES: Hazen-Williams / Metodología IANC
+# VERSIÓN: RECOMPUESTA (Simulación + Datos de Campo)
 # =============================================================================
 
 import streamlit as st
@@ -11,153 +10,138 @@ import folium
 from streamlit_folium import st_folium
 import io
 
-# --- INTEGRACIÓN CON EL NÚCLEO TÉCNICO (CORE) ---
+# --- INTEGRACIÓN CON EL NÚCLEO TÉCNICO ---
 try:
     from core import (
         haversine, perdida_hazen_williams, territorios, 
         AUTOR, PROGRAMA_NOMBRE
     )
 except ImportError:
-    st.error("🚨 Error de Integridad: No se detecta el archivo 'core.py' en GitHub.")
+    st.error("🚨 Error: No se encuentra 'core.py' en el repositorio.")
     st.stop()
 
-# --- CONFIGURACIÓN DE PLATAFORMA ---
-st.set_page_config(
-    page_title="IANC H2O Pro",
-    layout="wide",
-    page_icon="📡",
-    initial_sidebar_state="expanded"
-)
+# --- CONFIGURACIÓN DE INTERFAZ ---
+st.set_page_config(page_title="IANC H2O Pro", layout="wide", page_icon="📡")
 
-# --- PERSISTENCIA DE DATOS (SESSION STATE) ---
-if 'puntos_mapa' not in st.session_state: st.session_state.puntos_mapa = []
-if 'df_crudo' not in st.session_state: st.session_state.df_crudo = None
-if 'df_resultado' not in st.session_state: st.session_state.df_resultado = None
+# Persistencia de memoria (Para que no se borre nada en el celular)
+if 'pts_simulacion' not in st.session_state: st.session_state.pts_simulacion = []
+if 'df_campo_crudo' not in st.session_state: st.session_state.df_campo_crudo = None
+if 'df_campo_resultado' not in st.session_state: st.session_state.df_campo_resultado = None
 
-# --- ESTILOS DE INGENIERÍA (CSS PROFESIONAL) ---
+# Estilos visuales
 st.markdown("""
     <style>
-    .main { background-color: #fdfdfd; }
-    .stButton>button { 
-        width: 100%; border-radius: 8px; height: 3.5em; 
-        font-weight: bold; background-color: #1a73e8; color: white;
-        border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    .report-card { 
-        background-color: #ffffff; padding: 25px; border-radius: 12px; 
-        border-left: 8px solid #1a73e8; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; font-weight: bold; background-color: #1a73e8; color: white; }
+    .report-card { background-color: #ffffff; padding: 20px; border-radius: 10px; border-left: 10px solid #1a73e8; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
     </style>
 """, unsafe_allow_html=True)
 
 # --- CABECERA ---
 st.title(f"📡 {PROGRAMA_NOMBRE}")
-st.markdown(f"**Líder de Proyecto:** Ing. {AUTOR}")
+st.markdown(f"**Ingeniero Responsable:** {AUTOR}")
 st.divider()
 
-# --- PANEL DE CONTROL LATERAL ---
-st.sidebar.header("⚙️ CONFIGURACIÓN")
-modulo = st.sidebar.selectbox("Seleccione Módulo:", ["📍 Mapa Operativo", "📊 Auditoría por Lote"])
+# --- MENÚ DE OPERACIÓN ---
+st.sidebar.header("MENÚ DE CONTROL")
+opcion = st.sidebar.radio("Seleccione Función:", ["📍 Simulación en Mapa", "📊 Datos de Campo (CSV)"])
 st.sidebar.divider()
 
-mun_sel = st.sidebar.selectbox("Municipio de Trabajo:", list(territorios.keys()))
-datos_mun = territorios[mun_sel]
+mun_sel = st.sidebar.selectbox("Municipio:", list(territorios.keys()))
 dn_pulg = st.sidebar.selectbox("Diámetro Red (Pulg):", [2, 3, 4, 6, 8, 10, 12], index=2)
-costo_m3 = st.sidebar.number_input("Costo m³ (COP):", value=datos_mun['costo'])
+costo_agua = st.sidebar.number_input("Costo m³ (COP):", value=territorios[mun_sel]['costo'])
 
 # =================================================================
-# MÓDULO 1: MAPA OPERATIVO (GEORREFERENCIACIÓN)
+# MÓDULO 1: SIMULACIÓN EN MAPA
 # =================================================================
-if modulo == "📍 Mapa Operativo":
-    st.subheader(f"Análisis Espacial: {mun_sel}")
-    st.info("💡 Marque los puntos en el mapa para calcular la pérdida del tramo.")
+if opcion == "📍 Simulación en Mapa":
+    st.subheader(f"Módulo de Simulación: {mun_sel}")
+    st.info("Toque el mapa para definir los tramos de red y calcular pérdidas teóricas.")
     
-    m = folium.Map(location=datos_mun['coords'], zoom_start=15, control_scale=True)
-    for i, p in enumerate(st.session_state.puntos_mapa):
-        folium.Marker(p, popup=f"P{i+1}", icon=folium.Icon(color='blue')).add_to(m)
+    m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
+    for i, p in enumerate(st.session_state.pts_simulacion):
+        folium.Marker(p, popup=f"Punto {i+1}").add_to(m)
 
-    map_data = st_folium(m, key="mapa_v17", width="100%", height=450, use_container_width=True)
+    map_res = st_folium(m, key="mapa_sim", width="100%", height=450, use_container_width=True)
 
-    if map_data.get('last_clicked'):
-        nuevo_click = [map_data['last_clicked']['lat'], map_data['last_clicked']['lng']]
-        if not st.session_state.puntos_mapa or nuevo_click != st.session_state.puntos_mapa[-1]:
-            st.session_state.puntos_mapa.append(nuevo_click)
+    if map_res.get('last_clicked'):
+        click = [map_res['last_clicked']['lat'], map_res['last_clicked']['lng']]
+        if not st.session_state.pts_simulacion or click != st.session_state.pts_simulacion[-1]:
+            st.session_state.pts_simulacion.append(click)
             st.rerun()
 
     c1, c2 = st.columns(2)
-    if c1.button("🚀 CALCULAR PÉRDIDAS"):
-        if len(st.session_state.puntos_mapa) >= 2:
-            p1, p2 = st.session_state.puntos_mapa[-2], st.session_state.puntos_mapa[-1]
-            distancia_m = haversine(p1[0], p1[1], p2[0], p2[1])
-            # Cálculo Hidráulico (Q=15 LPS, C=140)
-            hf_psi = perdida_hazen_williams(15, 140, dn_pulg, distancia_m)
+    if c1.button("🚀 EJECUTAR SIMULACIÓN"):
+        if len(st.session_state.pts_simulacion) >= 2:
+            p1, p2 = st.session_state.pts_simulacion[-2], st.session_state.pts_simulacion[-1]
+            dist = haversine(p1[0], p1[1], p2[0], p2[1])
+            hf = perdida_hazen_williams(15, 140, dn_pulg, dist)
             
             st.markdown(f"""
             <div class="report-card">
-                <h4>📊 Informe de Tramo</h4>
-                <p><b>Longitud:</b> {distancia_m:.2f} m</p>
-                <p><b>Pérdida (hf):</b> {hf_psi:.4f} PSI</p>
-                <p><b>Costo Proyectado:</b> ${(distancia_m * costo_m3 / 10):,.0f} COP</p>
+                <h4>📊 Informe de Simulación</h4>
+                <p><b>Longitud del Tramo:</b> {dist:.2f} m</p>
+                <p><b>Pérdida (PSI):</b> {hf:.4f}</p>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.warning("Seleccione al menos 2 puntos.")
+            st.warning("Marque al menos 2 puntos en el mapa.")
 
-    if c2.button("🗑️ REINICIAR"):
-        st.session_state.puntos_mapa = []
+    if c2.button("🗑️ LIMPIAR MAPA"):
+        st.session_state.pts_simulacion = []
         st.rerun()
 
 # =================================================================
-# MÓDULO 2: AUDITORÍA POR LOTE (MAPEADOR DINÁMICO)
+# MÓDULO 2: DATOS DE CAMPO (CSV)
 # =================================================================
-elif modulo == "📊 Auditoría por Lote":
-    st.subheader("Auditoría Técnica de Sensores")
+elif opcion == "📊 Datos de Campo (CSV)":
+    st.subheader("Módulo de Auditoría: Datos de Campo")
+    st.write("Cargue su archivo de sensores para el procesamiento real.")
     
-    # Carga de archivo con blindaje de red
-    archivo = st.file_uploader("📁 Cargar reporte CSV", type=None)
+    archivo = st.file_uploader("Subir Reporte CSV", type=None, key="up_campo")
 
     if archivo is not None:
         try:
-            raw_bytes = archivo.getvalue()
-            content = raw_bytes.decode('latin-1')
-            sep = ';' if content.count(';') > content.count(',') else ','
-            st.session_state.df_crudo = pd.read_csv(io.StringIO(content), sep=sep)
-            st.success("✅ Archivo cargado.")
+            # Lectura robusta para evitar errores de red y de formato (comas/puntos y comas)
+            raw = archivo.getvalue().decode('latin-1')
+            sep = ';' if raw.count(';') > raw.count(',') else ','
+            st.session_state.df_campo_crudo = pd.read_csv(io.StringIO(raw), sep=sep)
+            st.success("✅ Archivo de campo detectado con éxito.")
         except Exception as e:
-            st.error(f"Error de red: {e}")
+            st.error(f"Error al leer el archivo: {e}")
 
-    if st.session_state.df_crudo is not None:
-        df = st.session_state.df_crudo
+    if st.session_state.df_campo_crudo is not None:
+        df = st.session_state.df_campo_crudo
+        st.write("### Vista previa de datos cargados:")
         st.dataframe(df.head(5), use_container_width=True)
 
-        st.info("⚙️ **Mapeo de Datos:** Seleccione las columnas de su archivo.")
-        cols = list(df.columns)
+        # MAPEADOR: Esto soluciona que el programa no encuentre las columnas
+        st.info("⚙️ **Configuración de Datos:** Indique cuáles son las columnas de su archivo.")
+        columnas = list(df.columns)
         
-        # Búsqueda inteligente de columnas
-        def_q = cols.index([c for c in cols if 'caudal' in str(c).lower()][0]) if any('caudal' in str(c).lower() for c in cols) else 0
-        def_d = cols.index([c for c in cols if 'distancia' in str(c).lower()][0]) if any('distancia' in str(c).lower() for c in cols) else 1 if len(cols) > 1 else 0
+        # Búsqueda automática de nombres probables
+        def_q = columnas.index([c for c in columnas if 'caudal' in c.lower()][0]) if any('caudal' in c.lower() for c in columnas) else 0
+        def_d = columnas.index([c for c in columnas if 'distancia' in c.lower()][0]) if any('distancia' in c.lower() for c in columnas) else 1 if len(columnas) > 1 else 0
 
-        c_q, c_d = st.columns(2)
-        sel_q = c_q.selectbox("Columna Caudal:", cols, index=def_q)
-        sel_d = c_d.selectbox("Columna Distancia:", cols, index=def_d)
+        col1, col2 = st.columns(2)
+        q_col = col1.selectbox("Columna de CAUDAL:", columnas, index=def_q)
+        d_col = col2.selectbox("Columna de DISTANCIA:", columnas, index=def_d)
 
-        if st.button("🚀 EJECUTAR AUDITORÍA"):
+        if st.button("🚀 PROCESAR DATOS DE CAMPO"):
             try:
                 df_res = df.copy()
                 df_res['perdida_psi'] = df_res.apply(
-                    lambda r: perdida_hazen_williams(pd.to_numeric(r[sel_q]), 140, dn_pulg, pd.to_numeric(r[sel_d])), axis=1
+                    lambda r: perdida_hazen_williams(pd.to_numeric(r[q_col]), 140, dn_pulg, pd.to_numeric(r[d_col])), axis=1
                 )
-                st.session_state.df_resultado = df_res
+                st.session_state.df_campo_resultado = df_res
             except Exception as ex:
-                st.error(f"Error en datos: {ex}")
+                st.error(f"Error en el cálculo: Verifique que las columnas sean numéricas. ({ex})")
 
-    if st.session_state.df_resultado is not None:
+    if st.session_state.df_campo_resultado is not None:
         st.divider()
-        st.write("### Reporte Procesado:")
-        st.dataframe(st.session_state.df_resultado, use_container_width=True)
-        csv_final = st.session_state.df_resultado.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 DESCARGAR RESULTADOS", csv_final, "auditoria_h2o.csv", "text/csv")
+        st.write("### 📋 Resultados de Auditoría de Campo:")
+        st.dataframe(st.session_state.df_campo_resultado, use_container_width=True)
+        
+        csv_out = st.session_state.df_campo_resultado.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 DESCARGAR RESULTADOS", csv_out, "auditoria_campo.csv", "text/csv")
 
-st.sidebar.divider()
 st.sidebar.caption(f"© 2026 Auditoría H2O | Ing. Barrera")
