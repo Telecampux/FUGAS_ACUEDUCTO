@@ -1,79 +1,156 @@
+# =============================================================================
+# AVISO DE PROPIEDAD INTELECTUAL Y DERECHOS DE AUTOR
+# =============================================================================
+# Proyecto: IANC H2O - Sistema Integral de Auditoría de Acueductos
+# Versión: 2.0 (Arquitectura Modular Pro)
+# Autor: Ing. Adolfo Barrera Vargas
+# Ubicación: Colombia
+# 
+# (c) Copyright 2026. Todos los derechos reservados.
+# 
+# Este software y sus algoritmos (Core Hydraulics) están protegidos por las 
+# leyes de derecho de autor en Colombia (Ley 23 de 1982). Queda prohibida la 
+# reproducción total o parcial, comunicación pública, transformación o 
+# distribución sin la autorización expresa y por escrito del autor.
+# =============================================================================
+
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-from math import radians, cos, sin, asin, sqrt
 import json
 import pandas as pd
-import time
+import streamlit.components.v1 as components
 
-# --- CONFIGURACIÓN E INTERFAZ PROFESIONAL ---
-st.set_page_config(page_title="IANC H2O - Auditoría Profesional", layout="wide")
+# --- IMPORTACIÓN DESDE EL CEREBRO (CORE) ---
+# Traemos la lógica, los datos y las constantes desde nuestra carpeta privada
+from core import (
+    haversine, 
+    perdida_hazen_williams, 
+    territorios, 
+    PROGRAMA_NOMBRE, 
+    AUTOR, 
+    EMPRESA_DEFAULT
+)
 
-autor = "ING. ADOLFO BARRERA VARGAS"
-programa = "SISTEMA INTEGRAL DE AUDITORÍA P.R.P."
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="IANC H2O - Auditoría Profesional", 
+    layout="wide", 
+    page_icon="📡"
+)
 
+# Inyección del Manifiesto PWA (Para que el celular lo reconozca como App)
+components.html(
+    f'<link rel="manifest" href="./static/manifest.json">', 
+    height=0
+)
+
+# --- ENCABEZADO PRINCIPAL ---
 st.title("📡 TABLERO DE CONTROL IANC H2O")
-st.write(f"### {programa}")
-st.caption(f"**Gestión de Activos y Diagnóstico Hidráulico** | {autor}")
+st.subheader(PROGRAMA_NOMBRE)
+st.markdown(f"**Líder del Proyecto:** {AUTOR}")
 st.divider()
 
-# --- DATOS TOPOLÓGICOS ---
-territorios = {
-    "Villeta": {"coords": [5.0140, -74.4720], "costo": 3200, "z_base": 842.0},
-    "Neiva": {"coords": [2.9273, -75.2819], "costo": 3500, "z_base": 442.0},
-    "Chaparral": {"coords": [3.7231, -75.4832], "costo": 3100, "z_base": 854.0},
-    "El Espinal": {"coords": [4.1492, -74.8878], "costo": 2900, "z_base": 323.0},
-    "Villavicencio": {"coords": [4.1420, -73.6266], "costo": 3400, "z_base": 467.0}
-}
+# --- MENÚ LATERAL (SIDEBAR) ---
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3105/3105807.png", width=100)
+st.sidebar.header("📂 MENÚ DE CONTROL")
 
-# --- LÓGICA DE CÁLCULOS HIDRÁULICOS ---
-def haversine(lat1, lon1, lat2, lon2):
-    r = 6371000
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-    d = sin((lat2-lat1)/2)**2 + cos(lat1)*cos(lat2)*sin((lon2-lon1)/2)**2
-    return 2 * r * asin(sqrt(d))
-
-def perdida_hazen_williams(q_lps, c, d_pulg, l_m):
-    if q_lps <= 0: return 0
-    q_m3s = q_lps / 1000.0
-    d_m = d_pulg * 0.0254
-    hf_mca = 10.67 * l_m * ((q_m3s / c)**1.852) * (d_m**-4.87)
-    return hf_mca / 0.703 # Retorna pérdida en PSI
-
-# --- MENÚ LATERAL ---
-st.sidebar.header("📂 MÓDULOS DEL SISTEMA")
-modo = st.sidebar.radio("Modo de Trabajo:", ["Simulación Interactiva", "Operación Real (Carga Lote)"])
+modo = st.sidebar.radio(
+    "Seleccione Modo de Trabajo:", 
+    ["Simulación Interactiva", "Operación Real (Carga Lote)"]
+)
 
 st.sidebar.divider()
-mun_sel = st.sidebar.selectbox("Municipio Objeto", list(territorios.keys()))
-costo_m3 = st.sidebar.number_input("Costo m³ (COP)", value=territorios[mun_sel]['costo'])
-dn = st.sidebar.selectbox("Diámetro de Red Auditada (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
 
-# --- ESTADO DE SESIÓN ---
-if 'puntos' not in st.session_state: st.session_state.puntos = []
-if 'ejecutado_sim' not in st.session_state: st.session_state.ejecutado_sim = False
-if 'procesado_real' not in st.session_state: st.session_state.procesado_real = False
-if 'mostrar_animacion' not in st.session_state: st.session_state.mostrar_animacion = False
+# Selección de Municipio desde core.config
+mun_sel = st.sidebar.selectbox("Municipio de Operación:", list(territorios.keys()))
+datos_mun = territorios[mun_sel]
+
+# Parámetros Técnicos
+costo_m3 = st.sidebar.number_input(
+    "Costo del m³ (COP)", 
+    value=datos_mun['costo']
+)
+dn = st.sidebar.selectbox(
+    "Diámetro Red Auditada (Pulg)", 
+    [2, 3, 4, 6, 8, 10, 12], 
+    index=2
+)
+
+# --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
+for key, default in [
+    ('puntos', []), ('ejecutado', False), ('empresa', EMPRESA_DEFAULT),
+    ('analisis_listo', False)
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # =================================================================
-# MÓDULO 1: SIMULACIÓN INTERACTIVA (ESTÉTICA SUPERIOR)
+# CUERPO DE LA APLICACIÓN
 # =================================================================
+
 if modo == "Simulación Interactiva":
-    st.write("### 🕹️ Modo: Simulación Interactiva")
-    empresa = st.text_input("Nombre de la Empresa:", "Administración Municipal")
+    st.write(f"### 🕹️ Simulador: {mun_sel}")
+    st.session_state.empresa = st.text_input("Entidad Prestadora del Servicio:", st.session_state.empresa)
     
-    if st.sidebar.button("♻️ Reiniciar Nodos"):
-        st.session_state.puntos = []
-        st.session_state.ejecutado_sim = False
-        st.rerun()
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.info("Haga clic en el mapa para ubicar los sensores de presión y flujo.")
+        # Mapa centrado según coordenadas del municipio en core.config
+        m = folium.Map(location=datos_mun['coords'], zoom_start=15)
+        
+        # Lógica de marcadores
+        for i, p in enumerate(st.session_state.puntos):
+            folium.Marker(p, popup=f"Punto {i+1}", icon=folium.Icon(color='blue')).add_to(m)
+            
+        mapa_data = st_folium(m, width=800, height=500)
+        
+        # Captura de clics en el mapa
+        if mapa_data['last_clicked']:
+            punto = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
+            if punto not in st.session_state.puntos:
+                st.session_state.puntos.append(punto)
+                st.rerun()
 
-    # Mapa de trazado
-    m1 = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
-    for i, p in enumerate(st.session_state.puntos):
-        folium.Marker(p, popup=f"S{i+1}", icon=folium.Icon(color='blue')).add_to(m1)
+    with col2:
+        st.write("#### 📍 Puntos de Control")
+        if st.session_state.puntos:
+            for i, p in enumerate(st.session_state.puntos):
+                st.write(f"P{i+1}: {p[0]:.4f}, {p[1]:.4f}")
+            
+            if st.button("🗑️ Limpiar"):
+                st.session_state.puntos = []
+                st.session_state.ejecutado = False
+                st.rerun()
+                
+            if st.button("🚀 EJECUTAR CÁLCULOS"):
+                if len(st.session_state.puntos) < 2:
+                    st.warning("Se requieren al menos 2 puntos para calcular pérdidas.")
+                else:
+                    st.session_state.ejecutado = True
+
+# --- RESULTADOS DEL MOTOR HIDRÁULICO ---
+if st.session_state.ejecutado and modo == "Simulación Interactiva":
+    st.divider()
+    st.success("✅ Análisis Hidráulico Finalizado")
     
-    mapa_click = st_folium(m1, width=1100, height=400, key="sim_map")
+    # Ejemplo de uso de las funciones del core
+    p1, p2 = st.session_state.puntos[0], st.session_state.puntos[1]
+    distancia = haversine(p1[0], p1[1], p2[0], p2[1])
     
-    if mapa_click and mapa_click.get("last_clicked"):
-        clicked = [mapa_click["last_clicked"]["lat"], mapa_click["last_clicked"]["lng"]]
-        if not st.session
+    # Cálculo de pérdida (Ejemplo con caudal de 10 LPS y C de 140)
+    perdida = perdida_hazen_williams(10, 140, dn, distancia)
+    
+    res_col1, res_col2 = st.columns(2)
+    res_col1.metric("Distancia del Tramo", f"{distancia:.2f} m")
+    res_col2.metric("Pérdida Estimada (hf)", f"{perdida:.4f} PSI")
+
+elif modo == "Operación Real (Carga Lote)":
+    st.write("### 📊 Auditoría por Carga de Datos")
+    st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
+    st.info("Módulo configurado para procesamiento masivo de sensores IoT.")
+
+# --- PIE DE PÁGINA ---
+st.sidebar.divider()
+st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | Estándares CRA")
