@@ -3,55 +3,58 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 
-# Configuración de página (Esto hace que se vea profesional)
 st.set_page_config(page_title="Tablero IANC H2O", layout="wide")
 
 st.title("📡 TABLERO DE CONTROL IANC H2O")
 st.subheader("Líder del Proyecto: ING. ADOLFO BARRERA VARGAS")
 
-# Módulo de Carga
 uploaded_file = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
 
 if uploaded_file is not None:
     try:
-        # 1. Leer y limpiar datos
+        # Intentamos leer el archivo
         df = pd.read_csv(uploaded_file)
         
-        # Eliminamos filas que tengan latitud o longitud vacía
-        df = df.dropna(subset=['latitud', 'longitud'])
+        # 1. Advertencia de limpieza de nombres
+        df.columns = df.columns.str.strip().str.lower()
+        
+        # 2. VALIDACIÓN CRÍTICA: ¿Existen las columnas?
+        tiene_lat = 'latitud' in df.columns
+        tiene_lon = 'longitud' in df.columns
 
-        if df.empty:
-            st.error("El archivo subido no tiene datos válidos en las columnas de coordenadas.")
+        if not tiene_lat or not tiene_lon:
+            st.error("🛑 ERROR DE FORMATO DETECTADO")
+            st.warning(f"El programa busca 'latitud' y 'longitud', pero encontró: {list(df.columns)}")
+            st.info("💡 Por favor, renombre las columnas de su archivo CSV para que coincidan.")
+        
         else:
-            st.success(f"Se han cargado {len(df)} registros correctamente.")
-            
-            # 2. Layout de dos columnas: Datos a la izquierda, Mapa a la derecha
-            col1, col2 = st.columns([1, 2])
+            # 3. VALIDACIÓN DE DATOS VACÍOS
+            antes = len(df)
+            df = df.dropna(subset=['latitud', 'longitud'])
+            despues = len(df)
 
-            with col1:
-                st.write("### Vista previa de Auditoría")
-                st.dataframe(df.head(10)) # Muestra los primeros 10 registros
+            if despues == 0:
+                st.error("❌ ARCHIVO VACÍO: Todas las filas tienen coordenadas nulas o mal escritas.")
+            else:
+                if antes > despues:
+                    st.warning(f"⚠️ Se omitieron {antes - despues} filas por falta de coordenadas.")
 
-            with col2:
-                st.write("### Ubicación de Sensores IoT")
-                # Calcular el centro del mapa basado en el promedio de coordenadas
-                centro_lat = df['latitud'].mean()
-                centro_lon = df['longitud'].mean()
-                
-                m = folium.Map(location=[centro_lat, centro_lon], zoom_start=14)
+                st.success(f"✅ Procesando {despues} sensores IoT.")
 
-                # Añadir los puntos al mapa automáticamente
-                for i, row in df.iterrows():
-                    folium.Marker(
-                        [row['latitud'], row['longitud']],
-                        popup=f"Punto: {i}",
-                        icon=folium.Icon(color='blue', icon='info-sign')
-                    ).add_to(m)
+                # Visualización
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.write("### 📊 Datos de Auditoría")
+                    st.dataframe(df)
 
-                # Renderizar el mapa
-                st_folium(m, width=700, height=500)
+                with col2:
+                    st.write("### 🗺️ Ubicación Geográfica")
+                    m = folium.Map(location=[df.latitud.mean(), df.longitud.mean()], zoom_start=13)
+                    for i, row in df.iterrows():
+                        folium.Marker([row['latitud'], row['longitud']], popup=f"ID: {i}").add_to(m)
+                    st_folium(m, width="100%", height=450)
 
     except Exception as e:
-        st.error(f"Error al procesar el archivo: {e}")
+        st.error(f"💥 Error inesperado al leer el archivo: {e}")
 else:
-    st.info("Esperando carga de archivo .csv para activar el tablero...")
+    st.info("📥 Por favor, cargue el archivo .csv para iniciar la auditoría.")
