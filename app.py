@@ -5,69 +5,84 @@ from pathlib import Path
 import folium
 from streamlit_folium import st_folium
 
-# --- 1. LÓGICA DE DETECCIÓN DE DIRECTORIOS (REFORZADA) ---
-# Usamos Path para manejar rutas de forma más limpia
+# --- 1. CONFIGURACIÓN Y RUTAS (ESTABILIDAD) ---
 BASE_DIR = Path(__file__).resolve().parent
 DATA_FOLDER = BASE_DIR / "datos_simulacion"
 
-def inicializar_sistema():
-    """Verifica la carpeta de datos y lista archivos de ingeniería."""
-    # Diagnóstico: Listar lo que ve el servidor para depuración profesional
-    try:
-        elementos_raiz = os.listdir(BASE_DIR)
-    except Exception as e:
-        return None, f"Error accediendo al directorio raíz: {e}"
+st.set_page_config(page_title="IANS H2O - Análisis Pro", layout="wide")
 
+def inicializar_sistema():
     if not DATA_FOLDER.exists():
-        return None, f"Carpeta 'datos_simulacion' no detectada en {BASE_DIR}. Contenido actual: {elementos_raiz}"
-    
-    # Filtro de archivos con list comprehension
-    archivos = [f for f in os.listdir(DATA_FOLDER) if f.lower().endswith(('.csv', '.xlsx', '.xls'))]
+        # Si no existe, listamos el directorio para depuración técnica
+        return None, f"Error: No se halla la carpeta 'datos_simulacion' en {BASE_DIR}"
+    archivos = [f for f in os.listdir(DATA_FOLDER) if f.lower().endswith(('.csv', '.xlsx'))]
     return archivos, None
 
-def cargar_data(archivo_nombre):
-    ruta = DATA_FOLDER / archivo_nombre
-    if archivo_nombre.endswith('.csv'):
-        return pd.read_csv(ruta)
-    else:
-        return pd.read_excel(ruta)
+# --- 2. LÓGICA DE PROCESAMIENTO (LO QUE SE HABÍA PERDIDO) ---
+def analizar_presiones(df):
+    """
+    Aquí reinsertamos tu lógica de detección. 
+    Ejemplo: Marcamos puntos donde la presión cae del umbral crítico.
+    """
+    # Supongamos que tu columna de presión se llama 'Presion_PSI'
+    if 'Presion_PSI' in df.columns:
+        df['Alerta'] = df['Presion_PSI'].apply(lambda x: "Crítico" if x < 20 else "Normal")
+    return df
 
-# --- 2. CONFIGURACIÓN DE LA INTERFAZ IANS H2O ---
-st.set_page_config(page_title="IANS H2O - Localización de Fugas", layout="wide")
+# --- 3. INTERFAZ Y EJECUCIÓN ---
+st.title("📍 Localización de Fugas IANS H2O")
 
-st.title("📍 Sistema de Localización de Fugas IANS H2O")
-st.sidebar.header("Configuración del Sistema")
-st.sidebar.info(f"Ruta base detectada: `{BASE_DIR}`")
+archivos, error = inicializar_sistema()
 
-# --- 3. EJECUCIÓN PRINCIPAL ---
-archivos_disponibles, error_msg = inicializar_sistema()
-
-if error_msg:
-    st.error(f"❌ Error de Estructura")
-    st.code(error_msg) # Mostramos el error técnico en un bloque de código
-    st.warning("Asegúrate de que la carpeta esté en el repositorio con el nombre exacto 'datos_simulacion'.")
+if error:
+    st.error(error)
+    st.info("💡 Consejo: Asegúrate de que el nombre de la carpeta en GitHub sea exactamente 'datos_simulacion'.")
 else:
-    if not archivos_disponibles:
-        st.warning(f"⚠️ Carpeta '{DATA_FOLDER.name}' vacía o sin archivos compatibles.")
-    else:
-        archivo_target = st.selectbox("Seleccione archivo de monitoreo:", archivos_disponibles)
-        
+    with st.sidebar:
+        st.header("Panel de Control")
+        seleccion = st.selectbox("Archivo de Simulación", archivos)
+        st.write(f"Directorio: `{DATA_FOLDER}`")
+
+    if seleccion:
         try:
-            df = cargar_data(archivo_target)
-            st.success(f"✅ Analizando: {archivo_target}")
+            # Carga de datos
+            ruta_final = DATA_FOLDER / seleccion
+            df = pd.read_csv(ruta_final) if seleccion.endswith('.csv') else pd.read_excel(ruta_final)
             
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.subheader("Métricas de Red")
-                st.dataframe(df.describe(), use_container_width=True)
+            # Ejecutar lógica de ingeniería
+            df_procesado = analizar_presiones(df)
             
-            with col2:
-                st.subheader("Mapa de Presiones / Fugas")
-                m = folium.Map(location=[4.6, -74.0], zoom_start=6)
-                st_folium(m, width="100%", height=400)
+            st.success(f"Análisis completado para {seleccion}")
+            
+            # --- VISUALIZACIÓN ---
+            tab1, tab2 = st.tabs(["📊 Datos de Presión", "🗺️ Mapa de Fugas"])
+            
+            with tab1:
+                st.subheader("Análisis de Tendencias")
+                st.dataframe(df_procesado, use_container_width=True)
+            
+            with tab2:
+                st.subheader("Geolocalización de Anomalías")
+                # Aquí centramos el mapa en los datos si existen coordenadas
+                lat_media = df['latitud'].mean() if 'latitud' in df.columns else 4.6
+                lon_media = df['longitud'].mean() if 'longitud' in df.columns else -74.0
                 
+                m = folium.Map(location=[lat_media, lon_media], zoom_start=12)
+                
+                # Ejemplo de marcador de fuga
+                for idx, row in df_procesado.iterrows():
+                    if 'latitud' in row and 'longitud' in row:
+                        color = 'red' if row.get('Alerta') == "Crítico" else 'blue'
+                        folium.Marker(
+                            [row['latitud'], row['longitud']],
+                            popup=f"Presión: {row.get('Presion_PSI')} PSI",
+                            icon=folium.Icon(color=color)
+                        ).add_to(m)
+                
+                st_folium(m, width="100%", height=500)
+
         except Exception as e:
-            st.error(f"Error al procesar los datos: {e}")
+            st.error(f"Error procesando el archivo: {e}")
 
 st.sidebar.markdown("---")
-st.sidebar.write("Ing. Adolfo Barrera Vargas")
+st.sidebar.caption("Ing. Adolfo Barrera Vargas - v2.1")
