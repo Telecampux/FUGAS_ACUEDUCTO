@@ -1,60 +1,70 @@
 import streamlit as st
 import pandas as pd
+import folium
+from streamlit_folium import st_folium
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# 1. Títulos permanentes (Fuera del condicional para que no se "los coma")
 st.set_page_config(page_title="Tablero IANC H2O", layout="wide")
 
-# --- ENCABEZADO ---
 st.title("📡 TABLERO DE CONTROL IANC H2O")
 st.subheader("Ing. Adolfo Barrera Vargas - Gestión de Sensores")
 
-# --- CARGA DE ARCHIVO ---
+# 2. Módulo de carga
 uploaded_file = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
 
 if uploaded_file is not None:
     try:
-        # 1. Lectura de datos con detección de separador (coma o punto y coma)
+        # 3. Ejecución de cálculos (El cerebro del programa)
         df = pd.read_csv(uploaded_file, sep=None, engine='python')
-        
-        # 2. Normalización de columnas a minúsculas
         df.columns = df.columns.str.strip().str.lower()
         
-        # 3. Preparación técnica de coordenadas para el mapa nativo
-        # Creamos columnas 'lat' y 'lon' que son las que Streamlit lee por defecto
-        df['lat'] = pd.to_numeric(df['latitud'], errors='coerce')
-        df['lon'] = pd.to_numeric(df['longitud'], errors='coerce')
-        
-        # Limpiamos registros que no tengan coordenadas válidas
-        df = df.dropna(subset=['lat', 'lon'])
+        # Limpieza y conversión numérica
+        df['latitud'] = pd.to_numeric(df['latitud'], errors='coerce')
+        df['longitud'] = pd.to_numeric(df['longitud'], errors='coerce')
+        df['presion_psi'] = pd.to_numeric(df['presion_psi'], errors='coerce')
+        df = df.dropna(subset=['latitud', 'longitud'])
 
-        # --- SECCIÓN DE MÉTRICAS ---
+        # 4. Mostrar métricas de cálculo
         st.markdown("---")
-        m1, m2, m3 = st.columns(3)
-        
-        if not df.empty:
-            m1.metric("Total Sensores", len(df))
-            m2.metric("Municipio", str(df['municipio'].iloc[0]).capitalize() if 'municipio' in df.columns else "N/A")
-            m3.metric("Presión Promedio", f"{df['presion_psi'].mean():.2f} PSI" if 'presion_psi' in df.columns else "0.00 PSI")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Total Sensores", len(df))
+        with col_b:
+            mun = str(df['municipio'].iloc[0]).capitalize() if 'municipio' in df.columns else "N/A"
+            st.metric("Municipio Detectado", mun)
+        with col_c:
+            promedio = df['presion_psi'].mean()
+            st.metric("Presión Promedio", f"{promedio:.2f} PSI")
 
-            st.markdown("---")
+        # 5. Visualización del Tablero
+        st.markdown("---")
+        col1, col2 = st.columns([1, 1])
 
-            # --- VISUALIZACIÓN EN DOS COLUMNAS ---
-            col1, col2 = st.columns([1, 1.2])
+        with col1:
+            st.write("### 📊 Detalle de Auditoría")
+            st.table(df[['id_sensor', 'presion_psi', 'material', 'latitud', 'longitud']])
 
-            with col1:
-                st.write("### 📊 Detalle de Auditoría")
-                # Mostramos la tabla (st.table es la más confiable para visualizar)
-                columnas_ver = [c for c in ['id_sensor', 'presion_psi', 'material', 'latitud', 'longitud'] if c in df.columns]
-                st.table(df[columnas_ver])
+        with col2:
+            st.write("### 🗺️ Mapa de Ubicación (Villeta)")
+            # Crear el mapa de Folium que usted prefiere
+            centro_lat = df['latitud'].mean()
+            centro_lon = df['longitud'].mean()
+            
+            m = folium.Map(location=[centro_lat, centro_lon], zoom_start=15)
 
-            with col2:
-                st.write("### 🗺️ Mapa de Ubicación Geográfica")
-                # MAPA NATIVO: Ultra-confiable, no requiere iframes externos
-                st.map(df, latitude='lat', longitude='lon', color='#FF0000', size=20)
-        else:
-            st.error("El archivo no contiene coordenadas válidas en las columnas 'latitud' y 'longitud'.")
+            for _, row in df.iterrows():
+                folium.Marker(
+                    location=[row['latitud'], row['longitud']],
+                    popup=f"Sensor: {row['id_sensor']}\nPresión: {row['presion_psi']} PSI",
+                    tooltip=f"ID: {row['id_sensor']}",
+                    icon=folium.Icon(color='blue', icon='info-sign')
+                ).add_to(m)
+
+            # RENDERIZADO FINAL (Con llave de seguridad para que no falle en la web)
+            st_folium(m, width=600, height=450, key="mapa_ianc_final", returned_objects=[])
 
     except Exception as e:
-        st.error(f"Error crítico en el procesamiento: {e}")
+        st.error(f"Hubo un error al procesar los datos: {e}")
 else:
-    st.info("🔌 Sistema a la espera de datos. Por favor cargue el archivo CSV para activar el tablero.")
+    # Mensaje cuando no hay archivo
+    st.info("Esperando archivo CSV para iniciar cálculos y generación de mapa.")
