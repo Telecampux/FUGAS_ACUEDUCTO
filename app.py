@@ -1,41 +1,48 @@
-import os
 import streamlit as st
 import pandas as pd
-import json
+import os
+import pathlib
+import folium
+from streamlit_folium import st_folium
 
-# =================================================================
-# 1. RUTA ESTÁTICA Y DIRECTA (SIN EXPLORADOR DE WINDOWS)
-# =================================================================
-# Escriba aquí el nombre exacto de la carpeta que creó. 
-# Debe estar en el mismo lugar que este archivo app.py.
-CARPETA_DATOS = "datos_simulacion" 
+# --- CONFIGURACIÓN DE RUTAS DINÁMICAS ---
+# Esto garantiza que la app encuentre los archivos en cualquier servidor
+BASE_DIR = pathlib.Path(__file__).parent.resolve()
+DATA_FOLDER = os.path.join(BASE_DIR, 'datos_simulacion')
 
-st.sidebar.header("📂 DATOS DEL SISTEMA")
+def cargar_datos(nombre_archivo):
+    ruta_completa = os.path.join(DATA_FOLDER, nombre_archivo)
+    if os.path.exists(ruta_completa):
+        # Determinamos la extensión para usar el lector adecuado
+        if nombre_archivo.endswith('.csv'):
+            return pd.read_csv(ruta_completa)
+        elif nombre_archivo.endswith(('.xls', '.xlsx')):
+            return pd.read_excel(ruta_completa)
+    else:
+        st.error(f"❌ Error: No se encontró '{nombre_archivo}' en la carpeta {DATA_FOLDER}")
+        return None
 
-# Verificación de seguridad directa
-if not os.path.exists(CARPETA_DATOS):
-    st.error(f"❌ La carpeta '{CARPETA_DATOS}' no existe en este directorio.")
-    st.stop()
+# --- INTERFAZ DE STREAMLIT ---
+st.set_page_config(page_title="IANS H2O - Localización de Fugas", layout="wide")
 
-# =================================================================
-# 2. LECTURA AUTOMÁTICA DE ARCHIVOS
-# =================================================================
-archivos_json = [f for f in os.listdir(CARPETA_DATOS) if f.endswith(('.geojson', '.json'))]
-archivos_csv = [f for f in os.listdir(CARPETA_DATOS) if f.endswith('.csv')]
+st.title("📍 Sistema de Localización de Fugas IANS H2O")
+st.subheader("Análisis Técnico y Comercial de IANC")
 
-# --- Selector de Cartografía (Simulación) ---
-if archivos_json:
-    plano_sel = st.sidebar.selectbox("🗺️ Plano Cartográfico:", archivos_json)
-    ruta_plano = os.path.join(CARPETA_DATOS, plano_sel)
-    with open(ruta_plano, 'r', encoding='utf-8') as f:
-        cartografia_activa = json.load(f)
+# Ejemplo de carga de datos para el sistema
+# Reemplaza 'caudales.csv' por el nombre real de tu archivo
+datos = cargar_datos('tu_archivo_de_datos.csv') 
+
+if datos is not None:
+    st.success("✅ Datos de simulación cargados exitosamente.")
+    
+    # Aquí iría tu lógica de análisis de fugas y mapas
+    st.write("Vista previa de datos técnicos:", datos.head())
+    
+    # Ejemplo de visualización GIS
+    # m = folium.Map(location=[4.6097, -74.0817], zoom_start=12) # Coordenadas de ejemplo
+    # st_folium(m, width=700)
 else:
-    st.sidebar.warning(f"⚠️ No hay archivos GeoJSON en '{CARPETA_DATOS}'")
+    st.info("💡 Por favor, asegúrate de que la carpeta 'datos_simulacion' esté en tu repositorio de GitHub.")
 
-# --- Selector de Auditoría (Lote/Producción) ---
-if archivos_csv:
-    csv_sel = st.sidebar.selectbox("📊 Matriz de Auditoría:", archivos_csv)
-    ruta_csv = os.path.join(CARPETA_DATOS, csv_sel)
-    df = pd.read_csv(ruta_csv)
-else:
-    st.sidebar.warning(f"⚠️ No hay archivos CSV en '{CARPETA_DATOS}'")
+# --- LÓGICA DE FONDO ---
+# Aquí puedes integrar tus funciones de Python para el cálculo de IANC
