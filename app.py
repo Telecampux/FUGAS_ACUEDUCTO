@@ -1,88 +1,91 @@
 import streamlit as st
 import pandas as pd
-import os
-from pathlib import Path
 import folium
 from streamlit_folium import st_folium
+import os
 
-# --- 1. CONFIGURACIÓN Y RUTAS (ESTABILIDAD) ---
-BASE_DIR = Path(__file__).resolve().parent
-DATA_FOLDER = BASE_DIR / "datos_simulacion"
+# Configuración de la página (Debe ser la primera instrucción de Streamlit)
+st.set_page_config(
+    page_title="IANC H2O Auditoría",
+    page_icon="💧",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.set_page_config(page_title="IANS H2O - Análisis Pro", layout="wide")
+# 1. INYECCIÓN DE METADATOS PWA (Opcional pero recomendado para el Manifest)
+def add_pwa_headers():
+    st.markdown(
+        f"""
+        <link rel="manifest" href="./static/manifest.json">
+        <meta name="theme-color" content="#000000">
+        """,
+        unsafe_allow_html=True
+    )
 
-def inicializar_sistema():
-    if not DATA_FOLDER.exists():
-        # Si no existe, listamos el directorio para depuración técnica
-        return None, f"Error: No se halla la carpeta 'datos_simulacion' en {BASE_DIR}"
-    archivos = [f for f in os.listdir(DATA_FOLDER) if f.lower().endswith(('.csv', '.xlsx'))]
-    return archivos, None
+# 2. CARGA DE ESTILOS CSS PERSONALIZADOS
+def local_css():
+    st.markdown("""
+        <style>
+        .main { background-color: #f5f7f9; }
+        .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        </style>
+        """, unsafe_allow_html=True)
 
-# --- 2. LÓGICA DE PROCESAMIENTO (LO QUE SE HABÍA PERDIDO) ---
-def analizar_presiones(df):
-    """
-    Aquí reinsertamos tu lógica de detección. 
-    Ejemplo: Marcamos puntos donde la presión cae del umbral crítico.
-    """
-    # Supongamos que tu columna de presión se llama 'Presion_PSI'
-    if 'Presion_PSI' in df.columns:
-        df['Alerta'] = df['Presion_PSI'].apply(lambda x: "Crítico" if x < 20 else "Normal")
-    return df
+# 3. LÓGICA DE NAVEGACIÓN (Sidebar)
+def main():
+    add_pwa_headers()
+    local_css()
+    
+    st.sidebar.image("https://via.placeholder.com/150", caption="IANC H2O Pro") # Reemplazar con logo real
+    st.sidebar.title("Navegación")
+    
+    menu = ["Dashboard", "Simulación", "Mapa de Auditoría", "Reportes"]
+    choice = st.sidebar.selectbox("Seleccione un módulo", menu)
 
-# --- 3. INTERFAZ Y EJECUCIÓN ---
-st.title("📍 Localización de Fugas IANS H2O")
+    st.title(f"📊 Módulo: {choice}")
+    st.divider()
 
-archivos, error = inicializar_sistema()
+    # 4. RUTEO DE MÓDULOS
+    if choice == "Dashboard":
+        render_dashboard()
+    elif choice == "Simulación":
+        render_simulation()
+    elif choice == "Mapa de Auditoría":
+        render_map()
+    elif choice == "Reportes":
+        st.info("Módulo de reportes en desarrollo.")
 
-if error:
-    st.error(error)
-    st.info("💡 Consejo: Asegúrate de que el nombre de la carpeta en GitHub sea exactamente 'datos_simulacion'.")
-else:
-    with st.sidebar:
-        st.header("Panel de Control")
-        seleccion = st.selectbox("Archivo de Simulación", archivos)
-        st.write(f"Directorio: `{DATA_FOLDER}`")
+# --- DEFINICIÓN DE INTERFACES POR MÓDULO ---
 
-    if seleccion:
-        try:
-            # Carga de datos
-            ruta_final = DATA_FOLDER / seleccion
-            df = pd.read_csv(ruta_final) if seleccion.endswith('.csv') else pd.read_excel(ruta_final)
-            
-            # Ejecutar lógica de ingeniería
-            df_procesado = analizar_presiones(df)
-            
-            st.success(f"Análisis completado para {seleccion}")
-            
-            # --- VISUALIZACIÓN ---
-            tab1, tab2 = st.tabs(["📊 Datos de Presión", "🗺️ Mapa de Fugas"])
-            
-            with tab1:
-                st.subheader("Análisis de Tendencias")
-                st.dataframe(df_procesado, use_container_width=True)
-            
-            with tab2:
-                st.subheader("Geolocalización de Anomalías")
-                # Aquí centramos el mapa en los datos si existen coordenadas
-                lat_media = df['latitud'].mean() if 'latitud' in df.columns else 4.6
-                lon_media = df['longitud'].mean() if 'longitud' in df.columns else -74.0
-                
-                m = folium.Map(location=[lat_media, lon_media], zoom_start=12)
-                
-                # Ejemplo de marcador de fuga
-                for idx, row in df_procesado.iterrows():
-                    if 'latitud' in row and 'longitud' in row:
-                        color = 'red' if row.get('Alerta') == "Crítico" else 'blue'
-                        folium.Marker(
-                            [row['latitud'], row['longitud']],
-                            popup=f"Presión: {row.get('Presion_PSI')} PSI",
-                            icon=folium.Icon(color=color)
-                        ).add_to(m)
-                
-                st_folium(m, width="100%", height=500)
+def render_dashboard():
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Eficiencia Hídrica", "85%", "+2%")
+    col2.metric("Consumo Estimado", "1,200 m³", "-50 m³")
+    col3.metric("Puntos Críticos", "4", "Estable")
+    
+    st.subheader("Resumen de Datos Recientes")
+    # Aquí podrías cargar un dataframe de ejemplo o real
+    df_placeholder = pd.DataFrame({'Mes': ['Ene', 'Feb', 'Mar'], 'Consumo': [400, 420, 380]})
+    st.line_chart(df_placeholder.set_index('Mes'))
 
-        except Exception as e:
-            st.error(f"Error procesando el archivo: {e}")
+def render_simulation():
+    st.subheader("Parámetros de Simulación")
+    with st.form("sim_form"):
+        flujo = st.slider("Flujo de entrada (L/s)", 0, 100, 50)
+        presion = st.number_input("Presión de red (bar)", 1.0, 10.0, 3.5)
+        submit = st.form_submit_button("Ejecutar Simulación")
+        
+        if submit:
+            with st.spinner("Procesando modelos físicos..."):
+                # Aquí llamarías a una función en ianc_h2o_pro/core/calculos.py
+                st.success(f"Simulación completada para {flujo} L/s y {presion} bar.")
 
-st.sidebar.markdown("---")
-st.sidebar.caption("Ing. Adolfo Barrera Vargas - v2.1")
+def render_map():
+    st.subheader("Geolocalización de Auditoría")
+    # Coordenadas iniciales (ejemplo)
+    m = folium.Map(location=[4.6097, -74.0817], zoom_start=12)
+    folium.Marker([4.6097, -74.0817], popup="Punto de Control Principal").add_to(m)
+    st_folium(m, width=700, height=450)
+
+if __name__ == "__main__":
+    main()
