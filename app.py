@@ -1,6 +1,6 @@
 # =============================================================================
-# PROYECTO: IANC H2O - AUDITORÍA TÉCNICA
-# Versión: 5.5 (Estabilidad de Red - Fix AxiosError)
+# PROYECTO: IANC H2O - AUDITORÍA TÉCNICA (VERSION RESISTENCIA)
+# Versión: 6.0 | Autor: Ing. Adolfo Barrera Vargas
 # =============================================================================
 
 import streamlit as st
@@ -9,32 +9,27 @@ from streamlit_folium import st_folium
 import pandas as pd
 import io
 
-# --- CONEXIÓN CON EL MÓDULO DE CÁLCULO (CORE) ---
+# --- CONEXIÓN CORE ---
 try:
-    from core import (
-        haversine, perdida_hazen_williams, territorios, 
-        PROGRAMA_NOMBRE, AUTOR
-    )
+    from core import haversine, perdida_hazen_williams, territorios, AUTOR
 except ImportError:
-    st.error("🚨 Error: No se encuentra la carpeta 'core'.")
+    st.error("Error: No se detecta la carpeta 'core'.")
     st.stop()
 
-# Configuración ligera para evitar caídas de red
 st.set_page_config(page_title="IANC H2O Pro", layout="wide")
 
-# Estilos básicos
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #1a73e8; color: white; }</style>""", unsafe_allow_html=True)
+# Estilos optimizados para evitar sobrecarga de red
+st.markdown("<style>.stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #1a73e8; color: white; font-weight: bold; }</style>", unsafe_allow_html=True)
 
 st.title("📡 IANC H2O - AUDITORÍA")
+st.caption(f"Ingeniero: {AUTOR}")
 
 # --- NAVEGACIÓN ---
-modo = st.sidebar.radio("Función:", ["📍 Simulación Mapa", "📊 Auditoría Real (CSV)"])
+modo = st.sidebar.radio("Función:", ["📍 Simulación Mapa", "📊 Auditoría Real"])
 mun_sel = st.sidebar.selectbox("Municipio:", list(territorios.keys()))
 dn = st.sidebar.selectbox("Diámetro Red (Pulg):", [2, 3, 4, 6, 8, 10, 12], index=2)
 
-# Persistencia
 if 'puntos' not in st.session_state: st.session_state.puntos = []
-if 'df_final' not in st.session_state: st.session_state.df_final = None
 
 # =================================================================
 # MODO 1: SIMULACIÓN
@@ -43,10 +38,9 @@ if modo == "📍 Simulación Mapa":
     st.write(f"### Mapa: {mun_sel}")
     m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
     for i, p in enumerate(st.session_state.puntos):
-        folium.Marker(p, icon=folium.Icon(color='blue')).add_to(m)
+        folium.Marker(p).add_to(m)
     
-    # Mapa con clave única para evitar refrescos de red
-    mapa_res = st_folium(m, key="mapa_v8", width="100%", height=400, use_container_width=True)
+    mapa_res = st_folium(m, key="mapa_v10", width="100%", height=400, use_container_width=True)
 
     if mapa_res.get('last_clicked'):
         np = [mapa_res['last_clicked']['lat'], mapa_res['last_clicked']['lng']]
@@ -62,43 +56,49 @@ if modo == "📍 Simulación Mapa":
             st.success(f"Distancia: {dist:.2f} m | Pérdida: {perd:.4f} PSI")
 
 # =================================================================
-# MODO 2: AUDITORÍA REAL (SOLUCIÓN AXIOS ERROR)
+# MODO 2: AUDITORÍA REAL (CON PLAN B DE COPIA/PEGA)
 # =================================================================
-elif modo == "📊 Auditoría Real (CSV)":
-    st.subheader("Carga de Datos de Campo")
+elif modo == "📊 Auditoría Real":
+    st.subheader("Ingreso de Datos de Campo")
     
-    # Usamos una clave única para el uploader para estabilizar la conexión
-    archivo_input = st.file_uploader("Seleccione el archivo", type=None, key="uploader_estable")
+    # Creamos pestañas para dar opciones si falla la red
+    tab1, tab2 = st.tabs(["📁 Subir Archivo CSV", "📝 Copiar/Pegar Datos"])
 
-    if archivo_input is not None:
-        try:
-            # LEER DATOS (Sin procesar nada todavía para no saturar la red)
-            raw_data = archivo_input.getvalue()
-            
-            # Intentar detectar formato automáticamente
-            content = raw_data.decode('latin-1')
-            sep = ';' if content.count(';') > content.count(',') else ','
-            
-            df = pd.read_csv(io.StringIO(content), sep=sep)
-            
-            st.success("✅ Archivo cargado en memoria.")
-            st.dataframe(df.head(3), use_container_width=True)
+    df_a_procesar = None
 
-            if st.button("🚀 EJECUTAR PROCESAMIENTO"):
-                with st.spinner("Calculando con el Core..."):
-                    df.columns = [str(c).lower().strip() for c in df.columns]
-                    if 'caudal' in df.columns and 'distancia' in df.columns:
-                        df['perdida_psi'] = df.apply(
-                            lambda r: perdida_hazen_williams(r['caudal'], 140, dn, r['distancia']), axis=1
-                        )
-                        st.session_state.df_final = df
-                        st.write("#### RESULTADOS:")
-                        st.dataframe(df, use_container_width=True)
-                    else:
-                        st.error("Faltan columnas 'caudal' o 'distancia'.")
-                        
-        except Exception as e:
-            st.error("Error de lectura. Intente descargar el archivo al celular antes de subirlo.")
-            st.info(f"Detalle técnico: {e}")
+    with tab1:
+        archivo = st.file_uploader("Cargar CSV", type=None, key="up_v6")
+        if archivo:
+            try:
+                # Lectura robusta con detección de separador
+                data = archivo.getvalue().decode('latin-1')
+                sep = ';' if data.count(';') > data.count(',') else ','
+                df_a_procesar = pd.read_csv(io.StringIO(data), sep=sep)
+                st.success("Archivo cargado por archivo.")
+            except Exception as e:
+                st.error("Error de red al subir. Use la pestaña 'Copiar/Pegar Datos'.")
 
-st.sidebar.caption(f"© 2026 Auditoría H2O")
+    with tab2:
+        st.write("Abra su archivo en el celular, copie los datos y péguelos abajo:")
+        texto_pega = st.text_area("Pegue aquí el contenido del CSV", height=150, help="Debe incluir los encabezados: caudal, distancia")
+        if texto_pega:
+            try:
+                sep_p = ';' if texto_pega.count(';') > texto_pega.count(',') else ','
+                df_a_procesar = pd.read_csv(io.StringIO(texto_pega), sep=sep_p)
+                st.success("Datos capturados desde texto.")
+            except Exception as e:
+                st.error("Formato de texto no reconocido.")
+
+    # --- PROCESAMIENTO UNIFICADO ---
+    if df_a_procesar is not None:
+        st.dataframe(df_a_procesar.head(3), use_container_width=True)
+        if st.button("🚀 EJECUTAR PROCESAMIENTO"):
+            df_a_procesar.columns = [str(c).lower().strip() for c in df_a_procesar.columns]
+            if 'caudal' in df_a_procesar.columns and 'distancia' in df_a_procesar.columns:
+                df_a_procesar['perdida_psi'] = df_a_procesar.apply(
+                    lambda r: perdida_hazen_williams(r['caudal'], 140, dn, r['distancia']), axis=1
+                )
+                st.write("#### RESULTADOS:")
+                st.dataframe(df_a_procesar, use_container_width=True)
+            else:
+                st.error("El sistema requiere columnas: 'caudal' y 'distancia'.")
