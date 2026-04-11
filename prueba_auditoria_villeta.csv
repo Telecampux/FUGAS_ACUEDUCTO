@@ -1,5 +1,0 @@
-municipio,id_sensor,latitud,longitud,cota_z,presion_psi,diametro_pulg,material,coeficiente_c,conexiones_dom
-Villeta,S-01,5.01400,-74.47200,842.0,60.0,4,PVC,150,0
-Villeta,S-02,5.01440,-74.47230,841.0,58.5,4,PVC,150,5
-Villeta,S-03,5.01480,-74.47260,840.0,35.0,4,PVC,150,6
-Villeta,S-04,5.01520,-74.47290,839.0,33.5,4,PVC,150,4
