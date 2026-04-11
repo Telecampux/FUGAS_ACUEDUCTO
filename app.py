@@ -1,142 +1,112 @@
-# =============================================================================
-# PROYECTO: IANC H2O - LOCALIZACIÓN DE FUGAS Y AUDITORÍA
-# INGENIERÍA: Ing. Adolfo Barrera Vargas
-# VERSIÓN: RETORNO A LA ESENCIA (Directa y Automática)
-# =============================================================================
-
 import streamlit as st
-import pandas as pd
 import folium
 from streamlit_folium import st_folium
-import io
+from math import radians, cos, sin, asin, sqrt
+import json
+import pandas as pd
 
-# --- INTEGRACIÓN CON EL NÚCLEO TÉCNICO ---
-try:
-    from core import (
-        haversine, perdida_hazen_williams, territorios, 
-        AUTOR, PROGRAMA_NOMBRE
-    )
-except ImportError:
-    st.error("🚨 Error: No se encuentra 'core.py' en el repositorio.")
-    st.stop()
+# --- CONFIGURACIÓN E INTERFAZ ---
+st.set_page_config(page_title="IANC H2O - Auditoría Profesional", layout="wide")
 
-# --- CONFIGURACIÓN DE INTERFAZ ---
-st.set_page_config(page_title="IANC H2O Pro", layout="wide", page_icon="📡")
+autor = "ING. ADOLFO BARRERA VARGAS"
+programa = "SISTEMA INTEGRAL DE AUDITORÍA P.R.P."
 
-# Persistencia de memoria
-if 'puntos_sim' not in st.session_state: st.session_state.puntos_sim = []
-if 'df_resultado' not in st.session_state: st.session_state.df_resultado = None
-
-# Estilos visuales limpios
-st.markdown("""
-    <style>
-    .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; font-weight: bold; background-color: #1a73e8; color: white; }
-    .report-box { background-color: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 8px solid #1a73e8; }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- CABECERA ---
-st.title(f"📡 {PROGRAMA_NOMBRE}")
-st.markdown(f"**Ingeniero Responsable:** {AUTOR}")
+st.title("📡 TABLERO DE CONTROL IANC H2O")
+st.write(f"### {programa}")
+st.caption(f"**Gestión de Activos y Diagnóstico Hidráulico** | {autor}")
 st.divider()
 
-# --- MENÚ DE OPERACIÓN ---
-st.sidebar.header("MENÚ DE CONTROL")
-opcion = st.sidebar.radio("Módulo de Trabajo:", ["📍 Simulación en Mapa", "📊 Datos de Campo (Lotes)"])
+# --- DATOS TOPOLÓGICOS ---
+territorios = {
+    "Villeta": {"coords": [5.0140, -74.4720], "costo": 3200, "z_base": 842.0},
+    "Neiva": {"coords": [2.9273, -75.2819], "costo": 3500, "z_base": 442.0},
+    "Chaparral": {"coords": [3.7231, -75.4832], "costo": 3100, "z_base": 854.0},
+    "El Espinal": {"coords": [4.1492, -74.8878], "costo": 2900, "z_base": 323.0},
+    "Villavicencio": {"coords": [4.1420, -73.6266], "costo": 3400, "z_base": 467.0}
+}
+
+# --- LÓGICA DE CÁLCULOS ---
+def haversine(lat1, lon1, lat2, lon2):
+    r = 6371000
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    d = sin((lat2-lat1)/2)**2 + cos(lat1)*cos(lat2)*sin((lon2-lon1)/2)**2
+    return 2 * r * asin(sqrt(d))
+
+def cargar_cartografia_simulada(municipio):
+    lat, lon = territorios[municipio]['coords']
+    return {
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {"tipo": "Red Matriz (Simulada)", "color": "#00FFFF", "weight": 6},
+                      "geometry": {"type": "LineString", "coordinates": [[lon - 0.015, lat + 0.015], [lon, lat]]}}]
+    }
+
+# --- MENÚ LATERAL ---
+st.sidebar.header("📂 MÓDULOS DEL SISTEMA")
+modo = st.sidebar.radio("Modo de Trabajo:", ["Simulación Interactiva", "Operación Real (Carga Lote)"])
+
 st.sidebar.divider()
+mun_sel = st.sidebar.selectbox("Municipio Objeto", list(territorios.keys()))
+costo_m3 = st.sidebar.number_input("Costo m³ (COP)", value=territorios[mun_sel]['costo'])
+dn = st.sidebar.selectbox("Diámetro de Red Auditada (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
 
-mun_sel = st.sidebar.selectbox("Municipio:", list(territorios.keys()))
-dn_pulg = st.sidebar.selectbox("Diámetro Red (Pulg):", [2, 3, 4, 6, 8, 10, 12], index=2)
+# --- CARGA DE CARTOGRAFÍA (GIS) ---
+st.sidebar.subheader("🗺️ Capas Geográficas")
+archivo_gis = st.sidebar.file_uploader("Subir Plano del Acueducto (.geojson)", type=["geojson", "json"])
+
+# --- ESTADO DE SESIÓN ---
+if 'puntos' not in st.session_state: st.session_state.puntos = []
+if 'ejecutado' not in st.session_state: st.session_state.ejecutado = False
+if 'presiones' not in st.session_state: st.session_state.presiones = []
+if 'cotas' not in st.session_state: st.session_state.cotas = []
+if 'empresa' not in st.session_state: st.session_state.empresa = "Administración Municipal"
 
 # =================================================================
-# MÓDULO 1: SIMULACIÓN EN MAPA (MÉTODO DIRECTO)
+# ENTRADAS
 # =================================================================
-if opcion == "📍 Simulación en Mapa":
-    st.subheader(f"Simulación de Tramos: {mun_sel}")
-    st.info("Toque 2 puntos en el mapa para calcular la longitud y la pérdida.")
+if modo == "Simulación Interactiva":
+    st.write("### 🕹️ Modo: Simulación Interactiva")
+    st.session_state.empresa = st.text_input("Nombre de la Empresa:", st.session_state.empresa)
     
-    m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
-    for i, p in enumerate(st.session_state.puntos_sim):
-        folium.Marker(p, popup=f"Punto {i+1}").add_to(m)
-
-    mapa = st_folium(m, key="mapa_directo", width="100%", height=450, use_container_width=True)
-
-    if mapa.get('last_clicked'):
-        click = [mapa['last_clicked']['lat'], mapa['last_clicked']['lng']]
-        if not st.session_state.puntos_sim or click != st.session_state.puntos_sim[-1]:
-            st.session_state.puntos_sim.append(click)
-            st.rerun()
-
-    c1, c2 = st.columns(2)
-    if c1.button("🚀 EJECUTAR SIMULACIÓN"):
-        if len(st.session_state.puntos_sim) >= 2:
-            p1, p2 = st.session_state.puntos_sim[-2], st.session_state.puntos_sim[-1]
-            distancia = haversine(p1[0], p1[1], p2[0], p2[1])
-            perdida = perdida_hazen_williams(15, 140, dn_pulg, distancia)
-            
-            st.markdown(f"""
-            <div class="report-box">
-                <h4>📊 Resultados del Tramo</h4>
-                <p><b>Longitud calculada:</b> {distancia:.2f} metros</p>
-                <p><b>Pérdida por fricción (hf):</b> {perdida:.4f} PSI</p>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.warning("Marque al menos 2 puntos en el mapa.")
-
-    if c2.button("🗑️ LIMPIAR MAPA"):
-        st.session_state.puntos_sim = []
+    if st.sidebar.button("♻️ Reiniciar Nodos"):
+        st.session_state.puntos = []
+        st.session_state.ejecutado = False
         st.rerun()
 
-# =================================================================
-# MÓDULO 2: DATOS DE CAMPO POR LOTES (MÉTODO AUTOMÁTICO)
-# =================================================================
-elif opcion == "📊 Datos de Campo (Lotes)":
-    st.subheader("Auditoría de Sensores en Lote")
-    st.write("Sincronice su archivo CSV. El sistema detectará las variables automáticamente.")
+    m1 = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=15)
+    carto = json.load(archivo_gis) if archivo_gis else cargar_cartografia_simulada(mun_sel)
+    folium.GeoJson(carto, style_function=lambda x: {'color': '#00FFFF', 'weight': 5, 'opacity': 0.5}).add_to(m1)
     
-    archivo = st.file_uploader("📁 Subir Archivo", type=None)
+    for i, p in enumerate(st.session_state.puntos):
+        folium.Marker(p, popup=f"S{i+1}", icon=folium.Icon(color='blue')).add_to(m1)
+    
+    mapa_click = st_folium(m1, width=1100, height=400, key=f"sim_{mun_sel}_{len(st.session_state.puntos)}")
+    
+    if mapa_click and mapa_click.get("last_clicked"):
+        clicked = [mapa_click["last_clicked"]["lat"], mapa_click["last_clicked"]["lng"]]
+        if not st.session_state.puntos or clicked != st.session_state.puntos[-1]:
+            st.session_state.puntos.append(clicked)
+            st.rerun()
 
-    if archivo is not None:
-        try:
-            # Lectura en memoria a prueba de errores
-            raw = archivo.getvalue().decode('latin-1')
-            sep = ';' if raw.count(';') > raw.count(',') else ','
-            df = pd.read_csv(io.StringIO(raw), sep=sep)
-            
-            # Limpieza automática de columnas (minúsculas y sin espacios extra)
-            df.columns = [str(c).lower().strip() for c in df.columns]
-
-            if 'caudal' in df.columns and 'distancia' in df.columns:
-                st.success("✅ Archivo válido. Variables 'caudal' y 'distancia' detectadas.")
-                
-                if st.button("🚀 EJECUTAR PROCESAMIENTO"):
-                    with st.spinner("Calculando..."):
-                        # Forzar conversión a números de forma invisible (ignora textos como "Villeta")
-                        df['caudal'] = pd.to_numeric(df['caudal'], errors='coerce')
-                        df['distancia'] = pd.to_numeric(df['distancia'], errors='coerce')
-                        
-                        # Quitar filas que hayan quedado vacías por ser texto
-                        df = df.dropna(subset=['caudal', 'distancia'])
-                        
-                        # Cálculo matemático
-                        df['perdida_psi'] = df.apply(
-                            lambda r: perdida_hazen_williams(r['caudal'], 140, dn_pulg, r['distancia']), axis=1
-                        )
-                        st.session_state.df_resultado = df
-            else:
-                st.error("❌ El archivo no contiene las columnas 'caudal' y 'distancia'. Verifique su reporte.")
-
-        except Exception as e:
-            st.error(f"Error de lectura del archivo: {e}")
-
-    # Mostrar Resultados directamente
-    if st.session_state.df_resultado is not None:
-        st.divider()
-        st.write("### 📋 Tabla de Resultados:")
-        st.dataframe(st.session_state.df_resultado, use_container_width=True)
+    if len(st.session_state.puntos) >= 2:
+        st.write("---")
+        pres_list, cota_list = [], []
+        cols = st.columns(len(st.session_state.puntos))
+        for i in range(len(st.session_state.puntos)):
+            with cols[i]:
+                p_val = st.number_input(f"Presión S{i+1}", value=45.0-(i*8.0), key=f"psim_{i}")
+                z_val = st.number_input(f"Cota S{i+1}", value=territorios[mun_sel]['z_base']-(i*1.0), key=f"zsim_{i}")
+                pres_list.append(p_val); cota_list.append(z_val)
         
-        csv_out = st.session_state.df_resultado.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 DESCARGAR AUDITORÍA", csv_out, "auditoria_procesada.csv", "text/csv")
+        if st.button("🚀 EJECUTAR CÁLCULOS"):
+            st.session_state.presiones = pres_list
+            st.session_state.cotas = cota_list
+            st.session_state.ejecutado = True
+            st.rerun()
 
-st.sidebar.caption(f"© 2026 Auditoría H2O | Ing. Barrera")
+elif modo == "Operación Real (Carga Lote)":
+    st.write("### 📊 Modo: Operación por Lote (Auditoría Técnica)")
+    
+    with st.expander("⚠️ PROTOCOLO DE INFORMACIÓN TÉCNICA REQUERIDA", expanded=True):
+        st.markdown("""
+        Para obtener resultados de **localización exacta**, el archivo CSV debe contener:
+        * **municipio**: Cruce
