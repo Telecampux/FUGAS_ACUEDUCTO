@@ -1,120 +1,152 @@
-# =============================================================================
-# PROYECTO: IANC H2O - SISTEMA INTEGRAL DE AUDITORÍA (APP PRINCIPAL)
-# AUTOR: ING. ADOLFO BARRERA VARGAS
-# =============================================================================
-
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
-import json
 import pandas as pd
-import time
-import streamlit.components.v1 as components
+import numpy as np
+import pydeck as pdk
+from datetime import datetime
 
-# --- IMPORTACIÓN DESDE EL CEREBRO (CORE) ---
-from core import (
-    haversine, 
-    perdida_hazen_williams, 
-    territorios, 
-    PROGRAMA_NOMBRE, 
-    AUTOR, 
-    EMPRESA_DEFAULT
-)
-
-# --- CONFIGURACIÓN DE PÁGINA ---
+# ==========================================
+# CONFIGURACIÓN Y ESTILOS
+# ==========================================
 st.set_page_config(
-    page_title="IANC H2O - Auditoría Profesional", 
-    layout="wide", 
-    page_icon="📡"
+    page_title="IANS H2O - Localización Técnica de Fugas",
+    page_icon="💧",
+    layout="wide"
 )
 
-# Inyección PWA
-components.html(f'<link rel="manifest" href="./static/manifest.json">', height=0)
+# Estilo CSS para mejorar la legibilidad profesional
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- ENCABEZADO PRINCIPAL ---
-st.title("📡 TABLERO DE CONTROL IANC H2O")
-st.subheader(PROGRAMA_NOMBRE)
-st.markdown(f"**Líder del Proyecto:** {AUTOR}")
-st.divider()
-
-# --- MENÚ LATERAL ---
-st.sidebar.header("📂 MENÚ DE CONTROL")
-modo = st.sidebar.radio("Modo de Trabajo:", ["Simulación Interactiva", "Operación Real (Carga Lote)"])
-
-st.sidebar.divider()
-mun_sel = st.sidebar.selectbox("Municipio de Operación:", list(territorios.keys()))
-datos_mun = territorios[mun_sel]
-costo_m3 = st.sidebar.number_input("Costo m³ (COP)", value=datos_mun['costo'])
-dn = st.sidebar.selectbox("Diámetro Red Auditada (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
-
-# --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
-if 'puntos' not in st.session_state: st.session_state.puntos = []
-if 'ejecutado' not in st.session_state: st.session_state.ejecutado = False
-if 'procesado_real' not in st.session_state: st.session_state.procesado_real = False
-if 'empresa' not in st.session_state: st.session_state.empresa = EMPRESA_DEFAULT
-
-# =================================================================
-# MÓDULO 1: SIMULACIÓN INTERACTIVA
-# =================================================================
-if modo == "Simulación Interactiva":
-    st.write(f"### 🕹️ Simulador Hidráulico: {mun_sel}")
-    st.session_state.empresa = st.text_input("Entidad Prestadora:", st.session_state.empresa)
+# ==========================================
+# LÓGICA DE INGENIERÍA (CÁLCULOS ESTADÍSTICOS)
+# ==========================================
+def calcular_probabilidad_fuga(df):
+    """
+    Analiza la relación Presión/Caudal para localizar puntos críticos.
+    Se basa en el análisis de anomalías de fondo.
+    """
+    # Normalización para análisis comparativo
+    df['p_norm'] = (df['presion'] - df['presion'].min()) / (df['presion'].max() - df['presion'].min())
+    df['c_norm'] = (df['caudal'] - df['caudal'].min()) / (df['caudal'].max() - df['caudal'].min())
     
-    col_map, col_inputs = st.columns([3, 1])
+    # El indicador de fuga aumenta cuando hay alta presión pero caída de caudal relativo, 
+    # o caudales excesivos en horas de mínima nocturna (Simulado aquí por lógica de peso)
+    df['Indice_Fuga'] = (df['c_norm'] * 0.6 + (1 - df['p_norm']) * 0.4) * 100
     
-    with col_map:
-        m = folium.Map(location=datos_mun['coords'], zoom_start=15)
-        for i, p in enumerate(st.session_state.puntos):
-            folium.Marker(p, popup=f"Sensor {i+1}", icon=folium.Icon(color='blue')).add_to(m)
-        
-        mapa_data = st_folium(m, width=900, height=500, key="sim_map_v2")
-        
-        if mapa_data['last_clicked']:
-            punto = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
-            if not st.session_state.puntos or punto != st.session_state.puntos[-1]:
-                st.session_state.puntos.append(punto)
-                st.rerun()
+    # Clasificación técnica
+    df['Prioridad'] = pd.cut(df['Indice_Fuga'], 
+                             bins=[0, 40, 70, 100], 
+                             labels=['Baja', 'Media', 'Crítica'])
+    return df
 
-    with col_inputs:
-        st.write("#### 📍 Configuración de Nodos")
-        if st.session_state.puntos:
-            presiones, cotas = [], []
-            for i, p in enumerate(st.session_state.puntos):
-                st.markdown(f"**Sensor {i+1}**")
-                p_v = st.number_input(f"Presión (PSI) S{i+1}", value=45.0-(i*5), key=f"ps_{i}")
-                z_v = st.number_input(f"Cota (msnm) S{i+1}", value=datos_mun['z_base']-i, key=f"zs_{i}")
-                presiones.append(p_v); cotas.append(z_v)
-            
-            if st.button("🚀 EJECUTAR CÁLCULOS"):
-                st.session_state.pres_sim = presiones
-                st.session_state.cota_sim = cotas
-                st.session_state.ejecutado = True
-            
-            if st.button("🗑️ Limpiar Todo"):
-                st.session_state.puntos = []; st.session_state.ejecutado = False
-                st.rerun()
+# ==========================================
+# COMPONENTES DE INTERFAZ
+# ==========================================
+def mostrar_mapa(df):
+    """Genera visualización GIS avanzada"""
+    # Definir color por prioridad
+    df['color_r'] = df['Prioridad'].apply(lambda x: 255 if x == 'Crítica' else (255 if x == 'Media' else 0))
+    df['color_g'] = df['Prioridad'].apply(lambda x: 0 if x == 'Crítica' else (165 if x == 'Media' else 128))
+    df['color_b'] = df['Prioridad'].apply(lambda x: 0 if x == 'Crítica' else 0)
 
-    if st.session_state.ejecutado:
-        st.divider()
-        st.subheader("📑 Informe de Resultados Matemáticos")
-        m_res = folium.Map(location=st.session_state.puntos[0], zoom_start=18)
+    view_state = pdk.ViewState(
+        latitude=df['latitud'].mean(),
+        longitude=df['longitud'].mean(),
+        zoom=13,
+        pitch=45
+    )
+
+    layer = pdk.Layer(
+        'ScatterplotLayer',
+        data=df,
+        get_position='[longitud, latitud]',
+        get_color='[color_r, color_g, color_b, 160]',
+        get_radius=80,
+        pickable=True
+    )
+
+    st.pydeck_chart(pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip={"text": "Prioridad: {Prioridad}\nÍndice: {Indice_Fuga:.2f}"}
+    ))
+
+# ==========================================
+# FLUJO PRINCIPAL (APP)
+# ==========================================
+def main():
+    st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3144/3144467.png", width=100)
+    st.sidebar.title("Navegación IANS H2O")
+    
+    opcion = st.sidebar.radio(
+        "Seleccione el flujo de trabajo:",
+        ["Dashboard de Control", "Simulación Técnica", "Procesamiento por Lotes (Campo)"]
+    )
+
+    st.title("📍 Localización de Fugas e Inspección de Redes")
+    st.info(f"Modo actual: {opcion}")
+
+    if opcion == "Simulación Técnica":
+        st.subheader("Generación de Escenarios de Prueba")
+        num_puntos = st.slider("Cantidad de puntos a simular", 10, 500, 100)
         
-        for i in range(len(st.session_state.puntos) - 1):
-            p1, p2 = st.session_state.pres_sim[i], st.session_state.pres_sim[i+1]
-            z1, z2 = st.session_state.cota_sim[i], st.session_state.cota_sim[i+1]
-            lat1, lon1 = st.session_state.puntos[i]
-            lat2, lon2 = st.session_state.puntos[i+1]
+        if st.button("Ejecutar Simulación"):
+            # Generación de datos sintéticos con ruido estadístico
+            data = pd.DataFrame({
+                'latitud': np.random.uniform(4.60, 4.65, num_puntos),
+                'longitud': np.random.uniform(-74.10, -74.05, num_puntos),
+                'caudal': np.random.uniform(5, 50, num_puntos),
+                'presion': np.random.uniform(15, 45, num_puntos)
+            })
+            df_res = calcular_probabilidad_fuga(data)
             
-            dist = haversine(lat1, lon1, lat2, lon2)
-            dz_psi = (z1 - z2) / 0.703
-            caida = (p1 + dz_psi) - p2
+            # Métricas rápidas
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Puntos Críticos", len(df_res[df_res['Prioridad'] == 'Crítica']))
+            c2.metric("Presión Promedio", f"{df_res['presion'].mean():.2f} PSI")
+            c3.metric("Caudal Total", f"{df_res['caudal'].sum():.2f} m3/h")
             
-            with st.expander(f"🔍 ANÁLISIS TRAMO S{i+1} ➔ S{i+2}", expanded=True):
-                if caida > 0.5:
-                    l_s = round(((caida**0.5) * 2.8) * (dn/3), 2)
-                    dist_f = round(dist * min(0.95, (caida/(p1+10))*2), 1)
-                    st.error(f"📍 FUGA DETECTADA A {dist_f} m")
-                    st.latex(r"\Delta P_{real} = (P_1 + \frac{\Delta Z}{0.703}) - P_2")
-                    
-                    r = dist_f / dist
-                    folium.Marker([lat1+(lat2-lat1)*r, lon1+(lon2-
+            mostrar_mapa(df_res)
+            st.dataframe(df_res.drop(columns=['color_r', 'color_g', 'color_b']))
+
+    elif opcion == "Procesamiento por Lotes (Campo)":
+        st.subheader("Carga de Datos Reales de Terreno")
+        archivo = st.file_uploader("Cargar archivo .csv o .xlsx detectado en campo", type=['csv', 'xlsx'])
+        
+        if archivo:
+            try:
+                if archivo.name.endswith('.csv'):
+                    df_campo = pd.read_csv(archivo)
+                else:
+                    df_campo = pd.read_excel(archivo)
+                
+                # Validación de columnas requeridas
+                cols_necesarias = {'latitud', 'longitud', 'caudal', 'presion'}
+                if cols_necesarias.issubset(df_campo.columns):
+                    with st.spinner('Analizando integridad de red...'):
+                        df_res = calcular_probabilidad_fuga(df_campo)
+                        mostrar_mapa(df_res)
+                        
+                        st.subheader("Detalle de Hallazgos")
+                        st.write(df_res[df_res['Prioridad'] == 'Crítica'])
+                        
+                        # Opción de descarga de resultados
+                        csv = df_res.to_csv(index=False).encode('utf-8')
+                        st.download_button("Descargar Reporte de Fugas", csv, "reporte_ians_h2o.csv", "text/csv")
+                else:
+                    st.error(f"Error en formato: El archivo debe contener exactamente las columnas {cols_necesarias}")
+            except Exception as e:
+                st.error(f"Error al procesar el archivo: {e}")
+        else:
+            st.warning("Por favor, suba un archivo para iniciar el procesamiento.")
+
+    elif opcion == "Dashboard de Control":
+        st.write("Bienvenido al sistema IANS H2O. Seleccione una opción en el menú lateral para comenzar el análisis.")
+        st.image("https://images.unsplash.com/photo-1581094794329-c8112a89af12?auto=format&fit=crop&q=80&w=1000", caption="Monitoreo de Infraestructura Hídrica")
+
+if __name__ == "__main__":
+    main()
