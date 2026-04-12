@@ -9,9 +9,8 @@ import folium
 from streamlit_folium import st_folium
 import pandas as pd
 import numpy as np
-import requests  # Requerido para la API de elevación
+import requests
 
-# Asumiendo que 'core' es un módulo local en tu proyecto
 from core import haversine, perdida_hazen_williams, territorios, AUTOR
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -21,7 +20,6 @@ st.set_page_config(page_title="IANC H2O - Auditoría Forense", layout="wide")
 def obtener_cota_api(lat, lon):
     """
     Consulta la elevación (Z) usando la API REST de Open-Meteo.
-    Implementa un timeout estricto para evitar bloqueos en el UI loop.
     """
     try:
         url = f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}"
@@ -29,8 +27,8 @@ def obtener_cota_api(lat, lon):
         if "elevation" in respuesta and respuesta["elevation"]:
             return round(respuesta["elevation"][0], 2)
     except Exception as e:
-        st.toast(f"⚠️ Error al obtener cota satelital: {e}", icon="📡")
-    return 1000.0  # Valor de inicialización seguro (Fallback)
+        st.error(f"Fallo de conexión con satélite: {e}")
+    return 1000.0
 
 # --- PARÁMETROS GENERALES (SIDEBAR) ---
 st.sidebar.header("📋 CONFIGURACIÓN DE RED")
@@ -41,12 +39,10 @@ coef_c = st.sidebar.slider("Coeficiente C (Rugosidad)", 100, 150, 140)
 # --- GESTIÓN ESTRICTA DE ESTADO DE SESIÓN ---
 if 'puntos' not in st.session_state: st.session_state.puntos = []
 if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {}
-if 'cotas_auto' not in st.session_state: st.session_state.cotas_auto = {}
 
 # --- TÍTULOS ---
 st.title("LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS")
 st.caption(f"Propiedad Intelectual: {AUTOR} | Análisis de Gradiente Hidráulico y Topometría")
-
 st.markdown("### **<u>Ubique sensores en diferentes puntos de la red</u>**", unsafe_allow_html=True)
 
 # --- SECCIÓN DE MAPA Y LECTURAS ---
@@ -66,7 +62,7 @@ with col_map:
     mapa_data = st_folium(m, width=700, height=450)
     
     # Detección de clic y extracción de Z
-    if mapa_data['last_clicked']:
+    if mapa_data and mapa_data.get('last_clicked'):
         lat = mapa_data['last_clicked']['lat']
         lng = mapa_data['last_clicked']['lng']
         punto = [lat, lng]
@@ -76,7 +72,10 @@ with col_map:
             idx_actual = len(st.session_state.puntos) - 1
             
             # Operación de red para obtener la cota real del DEM
-            st.session_state.cotas_auto[idx_actual] = obtener_cota_api(lat, lng)
+            cota_real = obtener_cota_api(lat, lng)
+            
+            # Inyección directa al núcleo de memoria del widget de Streamlit
+            st.session_state[f"z_{idx_actual}"] = float(cota_real)
             
             st.rerun()
 
@@ -87,16 +86,22 @@ with col_inputs:
             c1, c2 = st.columns(2)
             presion = c1.number_input(f"Presión (PSI)", key=f"p_{i}", value=50.0)
             
-            # Inyección de la cota calculada al modelo de datos de la UI
-            cota_recuperada = st.session_state.cotas_auto.get(i, 1000.0)
-            cota = c2.number_input(f"Cota (msnm)", key=f"z_{i}", value=float(cota_recuperada))
+            # Si el widget no existe aún en memoria, lo inicializamos de forma segura
+            if f"z_{i}" not in st.session_state:
+                st.session_state[f"z_{i}"] = 1000.0
+                
+            # Lectura automática vía key, sin parámetro 'value'
+            cota = c2.number_input(f"Cota (msnm)", key=f"z_{i}", step=1.0)
             
             st.session_state.datos_sensores[i] = {"P": presion, "Z": cota}
 
     if st.button("🗑️ Reiniciar Auditoría", use_container_width=True):
         st.session_state.puntos = []
         st.session_state.datos_sensores = {}
-        st.session_state.cotas_auto = {}
+        # Purgar la memoria residual de los widgets para evitar arrastre de datos fantasma
+        for key in list(st.session_state.keys()):
+            if key.startswith("z_") or key.startswith("p_"):
+                del st.session_state[key]
         st.rerun()
 
 # =================================================================
@@ -114,7 +119,7 @@ if len(st.session_state.puntos) >= 2:
         p_act = st.session_state.puntos[i]
         datos_act = st.session_state.datos_sensores[i]
         
-        # Energía Total H = Z + P * 0.703
+        # Energía Total H = Z + P * 0.703 (1 PSI = 0.703 mca)
         energia_h = datos_act['Z'] + (datos_act['P'] * 0.703)
         
         if i > 0:
