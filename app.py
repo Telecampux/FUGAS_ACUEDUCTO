@@ -37,7 +37,8 @@ def obtener_cota_api(lat, lon):
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ PARÁMETROS DE LA RED")
 q_entrada_lps = st.sidebar.number_input("Caudal Nominal (L/s)", value=20.0, step=0.1, format="%.1f")
-dn_pulg = st.sidebar.selectbox("Diámetro (Pulg)", [4, 6, 8, 10, 12, 14, 16, 18, 20, 24], index=3)
+# AÑADIDOS LOS DIÁMETROS DE 1, 2 y 3 PULGADAS. EL ÍNDICE 6 CORRESPONDE A 10 PULGADAS.
+dn_pulg = st.sidebar.selectbox("Diámetro (Pulg)", [1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24], index=6)
 coef_c = st.sidebar.slider("Coeficiente C", 100, 150, 140)
 
 if 'puntos' not in st.session_state: st.session_state.puntos = []
