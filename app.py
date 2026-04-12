@@ -1,5 +1,5 @@
 # =============================================================================
-# IANC H2O V2.0 - LOCALIZACIÓN DE FUGAS DE AGUA EN ACUEDUCTOS
+# IANC H2O V2.0 - LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
 # =============================================================================
 
@@ -7,11 +7,11 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
 from core import haversine, perdida_hazen_williams, territorios, AUTOR
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IANC H2O - Localización de Fugas", layout="wide")
+st.set_page_config(page_title="IANC H2O - Auditoría Forense", layout="wide")
 
 # --- PARÁMETROS GENERALES DE RED (SIDEBAR) ---
 st.sidebar.header("📋 CONFIGURACIÓN DE RED")
@@ -23,11 +23,11 @@ coef_c = st.sidebar.slider("Coeficiente C (Rugosidad)", 100, 150, 140)
 if 'puntos' not in st.session_state: st.session_state.puntos = []
 if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {}
 
-# --- TÍTULO Y ENCABEZADO ---
-st.title("📡 LOCALIZACIÓN DE FUGAS DE AGUA EN ACUEDUCTOS")
+# --- TÍTULO ACTUALIZADO ---
+st.title("📡 LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS")
 st.caption(f"Propiedad Intelectual: {AUTOR} | Análisis del Gradiente")
 
-# --- INSTRUCCIÓN DE OPERACIÓN ---
+# --- INSTRUCCIÓN DE OPERACIÓN (SUBRAYADA Y NEGRITA) ---
 st.markdown("### **<u>Ubique sensores en los sitios que considere de la red de ACUEDUCTO</u>**", unsafe_allow_html=True)
 
 # --- SECCIÓN DE MAPA Y LECTURAS ---
@@ -37,7 +37,6 @@ with col_map:
     mun_sel = st.selectbox("Municipio de Operación:", list(territorios.keys()))
     m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
     
-    # Marcadores de Sensores (Broadcast Azul)
     for i, p in enumerate(st.session_state.puntos):
         folium.Marker(p, icon=folium.Icon(color='blue', icon='broadcast', prefix='fa'),
                       popup=f"Sensor {i+1}").add_to(m)
@@ -75,16 +74,16 @@ if len(st.session_state.puntos) >= 2:
     
     dist_acumulada = 0.0
     tabla_final = []
-    grafico_h = []
+    distancias_plot = []
+    energias_plot = []
+    cotas_plot = []
     fugas_encontradas = []
 
     for i in range(len(st.session_state.puntos)):
         p_act = st.session_state.puntos[i]
         datos_act = st.session_state.datos_sensores[i]
         
-        # Balance de Energía H = Z + P/gamma
-        h_presion = datos_act['P'] * 0.703
-        energia_h = datos_act['Z'] + h_presion
+        energia_h = datos_act['Z'] + (datos_act['P'] * 0.703)
         
         if i > 0:
             p_prev = st.session_state.puntos[i-1]
@@ -92,44 +91,48 @@ if len(st.session_state.puntos) >= 2:
             dist_tramo = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
             dist_acumulada += dist_tramo
             
-            # Comparación de pérdida real vs teórica (Hazen-Williams)
             h_prev = datos_prev['Z'] + (datos_prev['P'] * 0.703)
             delta_h_real = h_prev - energia_h
             hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, dist_tramo) * 0.703
             
             if delta_h_real > hf_teorica:
                 proporcion = hf_teorica / delta_h_real
-                dist_fuga_tramo = dist_tramo * proporcion
-                # Despeje analítico de Q_fuga
+                dist_fuga = dist_tramo * proporcion
                 fuga_lps = abs(q_entrada_lps * (1 - (hf_teorica/delta_h_real)**0.54))
                 
                 fugas_encontradas.append({
                     "Tramo": f"S{i} a S{i+1}",
                     "Caudal": fuga_lps,
-                    "Distancia": dist_acumulada - dist_tramo + dist_fuga_tramo
+                    "Distancia": dist_acumulada - dist_tramo + dist_fuga
                 })
 
-        # Construcción de Matriz
         tabla_final.append({
-            "Punto": f"Sensor {i+1}",
+            "Sensor": f"S{i+1}",
             "Cota (msnm)": datos_act['Z'],
             "Presión (PSI)": datos_act['P'],
             "Carga H (mca)": round(energia_h, 2),
-            "Dist. Acum (m)": round(dist_acumulada, 2)
+            "Distancia (m)": round(dist_acumulada, 2)
         })
-        grafico_h.append({"Distancia": dist_acumulada, "Energía H": energia_h, "Terreno Z": datos_act['Z']})
+        distancias_plot.append(dist_acumulada)
+        energias_plot.append(energia_h)
+        cotas_plot.append(datos_act['Z'])
 
-    # Visualización del Gradiente Hidráulico
+    # --- GRÁFICO ESTÁTICO (SIN CUADROS MOLESTOS) ---
     st.subheader("📉 Perfil del Gradiente Hidráulico")
-    df_grafico = pd.DataFrame(grafico_h).set_index("Distancia")
-    st.line_chart(df_grafico)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(distancias_plot, energias_plot, 'b-o', label='Energía Hidráulica (H)')
+    ax.plot(distancias_plot, cotas_plot, 'g--', label='Terreno (Z)')
+    ax.fill_between(distancias_plot, cotas_plot, energias_plot, color='blue', alpha=0.1)
+    ax.set_xlabel('Distancia Acumulada (m)')
+    ax.set_ylabel('Altura / Energía (m)')
+    ax.grid(True, linestyle=':', alpha=0.6)
+    ax.legend()
+    st.pyplot(fig)
 
-    # --- TABLA TÉCNICA (MATRIZ DE AUDITORÍA) ---
+    # --- MATRIZ DE DATOS DE AUDITORÍA (INFERIOR) ---
     st.subheader("📋 Matriz de Datos de Auditoría")
-    # Usamos st.table para que sea fija, limpia y sin widgets de "color/valor"
     st.table(pd.DataFrame(tabla_final))
 
-    # Alertas Forenses
     if fugas_encontradas:
         for f in fugas_encontradas:
             st.error(f"🚨 RUPTURA DETECTADA en {f['Tramo']}: Pérdida de **{f['Caudal']:.2f} L/s** a los **{f['Distancia']:.1f} m**.")
@@ -138,4 +141,4 @@ if len(st.session_state.puntos) >= 2:
 
 # --- PIE DE PÁGINA ---
 st.sidebar.divider()
-st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | Auditoría IANC H2O")
+st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | Auditoría Forense IANC H2O")
