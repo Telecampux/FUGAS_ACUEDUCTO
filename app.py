@@ -1,7 +1,5 @@
 # =============================================================================
-# AVISO DE PROPIEDAD INTELECTUAL Y DERECHOS DE AUTOR
-# =============================================================================
-# Proyecto: IANC H2O - Sistema Integral de Auditoría de Acueductos
+# IANC H2O - MÓDULO DE LOCALIZACIÓN DE FUGAS Y CÁLCULO DE CAUDAL PERDIDO
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
 # =============================================================================
 
@@ -9,6 +7,7 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
+import numpy as np
 import streamlit.components.v1 as components
 
 # --- IMPORTACIÓN DESDE EL CEREBRO (CORE) ---
@@ -16,45 +15,36 @@ from core import (
     haversine, 
     perdida_hazen_williams, 
     territorios, 
-    PROGRAMA_NOMBRE, 
-    AUTOR, 
-    EMPRESA_DEFAULT
+    AUTOR
 )
 
-st.set_page_config(page_title="IANC H2O - Localizador de Rupturas", layout="wide")
+st.set_page_config(page_title="IANC H2O - Diagnóstico de Fugas", layout="wide")
 
-# --- ENCABEZADO ---
-st.title("📡 LOCALIZADOR DE RUPTURAS IANC H2O")
-st.markdown(f"**Sistema de Auditoría Forense de Tuberías** | Autor: {AUTOR}")
-st.divider()
-
-# --- SIDEBAR: PARÁMETROS TÉCNICOS ---
-st.sidebar.header("⚙️ CONFIGURACIÓN DE RED")
-caudal_lps = st.sidebar.number_input("Caudal de Operación (L/s)", value=10.0, step=0.5)
-dn = st.sidebar.selectbox("Diámetro (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
-mun_sel = st.sidebar.selectbox("Municipio:", list(territorios.keys()))
-datos_mun = territorios[mun_sel]
+# --- INTERFAZ DE CONFIGURACIÓN ---
+st.sidebar.header("📋 PARÁMETROS TÉCNICOS")
+caudal_nominal = st.sidebar.number_input("Caudal de Entrada (L/s)", value=15.0)
+diametro_pulg = st.sidebar.selectbox("Diámetro (Pulg)", [2, 3, 4, 6, 8, 10, 12], index=2)
+coef_c = st.sidebar.slider("Coeficiente C (Rugosidad)", 100, 150, 140)
 
 # --- ESTADO DE SESIÓN ---
 if 'puntos' not in st.session_state: st.session_state.puntos = []
-if 'presiones' not in st.session_state: st.session_state.presiones = {}
 
-# =================================================================
-# CUERPO: MAPA Y ENTRADA DE DATOS DE CAMPO
-# =================================================================
+st.title("📡 SIMULADOR DE DETECCIÓN DE FUGAS")
+st.caption(f"Propiedad Intelectual: {AUTOR} | Auditoría Hidráulica Forense")
+
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.subheader("📍 Mapa de Sensores")
-    m = folium.Map(location=datos_mun['coords'], zoom_start=15)
+    st.info("1. Marque el punto de inicio y fin en el mapa.")
+    mun_sel = st.selectbox("Municipio:", list(territorios.keys()))
+    m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
     
     for i, p in enumerate(st.session_state.puntos):
-        folium.Marker(p, popup=f"Sensor {i+1}", icon=folium.Icon(color='blue')).add_to(m)
+        folium.Marker(p, popup=f"Sensor {i+1}").add_to(m)
     if len(st.session_state.puntos) > 1:
-        folium.PolyLine(st.session_state.puntos, color="red", weight=3).add_to(m)
+        folium.PolyLine(st.session_state.puntos, color="blue", weight=4).add_to(m)
         
-    mapa_data = st_folium(m, width=700, height=450)
-    
+    mapa_data = st_folium(m, width=700, height=400)
     if mapa_data['last_clicked']:
         punto = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
         if punto not in st.session_state.puntos:
@@ -63,64 +53,73 @@ with col1:
 
 with col2:
     st.subheader("📝 Datos de Presión Real")
-    st.info("Ingrese la presión leída en el manómetro de cada sensor (PSI).")
-    
-    for i in range(len(st.session_state.puntos)):
-        st.session_state.presiones[f"S{i+1}"] = st.number_input(
-            f"Presión en Sensor {i+1} (PSI)", 
-            key=f"p_{i}", 
-            value=40.0 - (i*2.0) # Valor sugerido decreciente
-        )
-    
-    if st.button("🗑️ Limpiar Trazo"):
-        st.session_state.puntos = []
-        st.rerun()
+    if len(st.session_state.puntos) < 2:
+        st.warning("Seleccione al menos 2 puntos en el mapa.")
+    else:
+        p_entrada = st.number_input("Presión medida en Sensor 1 (PSI)", value=45.0)
+        p_salida = st.number_input("Presión medida en Sensor 2 (PSI)", value=30.0)
+        
+        if st.button("🗑️ Limpiar Mapa"):
+            st.session_state.puntos = []
+            st.rerun()
 
 # =================================================================
-# MOTOR DE LOCALIZACIÓN DE RUPTURAS
+# MOTOR DE CÁLCULO: CUÁNTO ES LA FUGA Y DÓNDE ESTÁ
 # =================================================================
 if len(st.session_state.puntos) >= 2:
     st.divider()
-    st.header("🔍 RESULTADO DEL ANÁLISIS DE FALLA")
     
-    # Análisis entre el Sensor 1 y Sensor 2 (Tramo Crítico)
+    # Datos base
     p1, p2 = st.session_state.puntos[0], st.session_state.puntos[1]
-    L_total = haversine(p1[0], p1[1], p2[0], p2[1])
+    L_tramo = haversine(p1[0], p1[1], p2[0], p2[1])
     
-    # 1. Pérdida Teórica (Sin ruptura)
-    hf_teorica = perdida_hazen_williams(caudal_lps, 140, dn, L_total)
+    # 1. Cálculo de Pérdida Teórica (Lo que debería pasar)
+    hf_teorico = perdida_hazen_williams(caudal_nominal, coef_c, diametro_pulg, L_tramo)
     
-    # 2. Pérdida Real Medida
-    presion_s1 = st.session_state.presiones.get("S1", 0)
-    presion_s2 = st.session_state.presiones.get("S2", 0)
-    delta_p_real = presion_s1 - presion_s2
+    # 2. Pérdida Real Observada
+    delta_p_real = p_entrada - p_salida
     
-    # 3. Localización de la Ruptura (Cálculo de intersección de gradientes)
-    # Si la pérdida real es mucho mayor a la teórica, hay ruptura.
+    # 3. IDENTIFICACIÓN DE LA FUGA
+    # Si la caída de presión real es mayor a la teórica, hay un orificio de fuga.
     if delta_p_real > hf_teorica:
-        # Relación de proporcionalidad para localizar la caída anómala
-        # Este es un modelo simplificado de localización por gradiente
-        factor_falla = (delta_p_real - hf_teorica) / delta_p_real
-        distancia_ruptura = L_total * (1 - factor_falla)
+        st.error("🚨 ANOMALÍA DETECTADA: Caída de presión excesiva.")
         
-        st.error(f"⚠️ RUPTURA DETECTADA")
+        # --- CÁLCULO DEL PUNTO EXACTO (L_fuga) ---
+        # Usamos el gradiente hidráulico para interceptar la pérdida.
+        # Basado en la relación de pendientes de presión.
+        L_fuga = L_tramo * (hf_teorico / delta_p_real)
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Distancia a Ruptura", f"{distancia_ruptura:.1f} m", "Desde Sensor 1")
-        c2.metric("Pérdida Anómala", f"{delta_p_real - hf_teorica:.2f} PSI")
-        c3.metric("Gravedad", "CRÍTICA" if delta_p_real > (hf_teorica * 2) else "MODERADA")
-        
-        st.warning(f"La excavación debe realizarse aproximadamente a **{distancia_ruptura:.1f} metros** siguiendo la línea de la tubería desde el primer sensor.")
-    else:
-        st.success("✅ INTEGRIDAD CONFIRMADA: Las presiones medidas coinciden con el flujo teórico.")
+        # --- CÁLCULO DE CUÁNTO ES LA FUGA (Q_fuga) ---
+        # Usando la ecuación de orificio equivalente o balance de masas:
+        # Se estima el caudal adicional que justificaría esa pérdida de presión.
+        caudal_equivalente = caudal_nominal * ((delta_p_real / hf_teorico)**(1/1.852))
+        q_fuga_total = caudal_equivalente - caudal_nominal
 
-    # Informe de Fondo
-    with st.expander("Ver Razonamiento Físico"):
-        st.latex(r"L_{ruptura} \approx L_{total} \cdot \left( \frac{\Delta P_{teorica}}{\Delta P_{real}} \right)")
-        st.write(f"""
-        El sistema compara el gradiente hidráulico teórico para **{caudal_lps} L/s** contra la caída de presión real.
-        Una ruptura genera un sumidero de energía que altera la pendiente de la línea de presión.
-        - **Distancia total del tramo:** {L_total:.2f} m
-        - **Caída esperada:** {hf_teorica:.4f} PSI
-        - **Caída medida:** {delta_p_real:.4f} PSI
-        """)
+        # --- RESULTADOS FINALES ---
+        res1, res2 = st.columns(2)
+        
+        with res1:
+            st.metric("📍 PUNTO DE LA RUPTURA", f"{L_fuga:.1f} metros", "Desde el Sensor 1")
+            st.write(f"Localización estimada entre S1 y S2.")
+
+        with res2:
+            st.metric("💧 MAGNITUD DE LA FUGA", f"{q_fuga_total:.2f} L/s")
+            st.write(f"Volumen perdido: {q_fuga_total * 3.6:.1f} m³/h")
+
+        # Representación Visual del Gradiente
+        st.subheader("📉 Análisis del Gradiente Hidráulico")
+        # Gráfico simple de caída de presión
+        chart_data = pd.DataFrame({
+            'Distancia (m)': [0, L_fuga, L_tramo],
+            'Presión Teórica (PSI)': [p_entrada, p_entrada - (hf_teorico*(L_fuga/L_tramo)), p_entrada - hf_teorico],
+            'Presión Real (Fuga)': [p_entrada, p_entrada - (hf_teorico*(L_fuga/L_tramo)), p_salida]
+        }).set_index('Distancia (m)')
+        st.line_chart(chart_data)
+
+    else:
+        st.success("✅ INTEGRIDAD DE TUBERÍA CONFIRMADA")
+        st.write("La caída de presión es normal para el caudal y diámetro seleccionados.")
+
+# --- PIE DE PÁGINA ---
+st.sidebar.divider()
+st.sidebar.caption(f"© 2026 Ing. Adolfo Barrera | Auditoría de Precisión")
