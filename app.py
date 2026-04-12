@@ -1,5 +1,5 @@
 # =============================================================================
-# IANC H2O V2.0 - LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS
+# IANC H2O V2.0 - SISTEMA PROFESIONAL DE AUDITORÍA HÍDRICA
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
 # =============================================================================
 
@@ -11,7 +11,7 @@ import numpy as np
 from core import haversine, perdida_hazen_williams, territorios, AUTOR
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IANC H2O - Auditoría Forense", layout="wide")
+st.set_page_config(page_title="IANC H2O - Localización de Fugas", layout="wide")
 
 # --- PARÁMETROS GENERALES DE RED (SIDEBAR) ---
 st.sidebar.header("📋 CONFIGURACIÓN DE RED")
@@ -23,12 +23,12 @@ coef_c = st.sidebar.slider("Coeficiente C (Rugosidad)", 100, 150, 140)
 if 'puntos' not in st.session_state: st.session_state.puntos = []
 if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {}
 
-# --- TÍTULO ACTUALIZADO ---
-st.title("📡 LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS")
-st.caption(f"Propiedad Intelectual: {AUTOR} | Análisis del Gradiente")
+# --- TÍTULOS FINALES SOLICITADOS ---
+st.title("LOCALIZACIÓN DE FUGAS INVISIBLES EN REDES DE ACUEDUCTOS")
+st.caption(f"Propiedad Intelectual: {AUTOR} | Análisis de Gradiente Hidráulico")
 
-# --- INSTRUCCIÓN DE OPERACIÓN (SUBRAYADA Y NEGRITA) ---
-st.markdown("### **<u>Ubique sensores en los sitios que considere de la red de ACUEDUCTO</u>**", unsafe_allow_html=True)
+# --- INSTRUCCIÓN DE OPERACIÓN ---
+st.markdown("### **<u>Ubique sensores en diferentes puntos de la red</u>**", unsafe_allow_html=True)
 
 # --- SECCIÓN DE MAPA Y LECTURAS ---
 col_map, col_inputs = st.columns([2, 1])
@@ -37,6 +37,7 @@ with col_map:
     mun_sel = st.selectbox("Municipio de Operación:", list(territorios.keys()))
     m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
     
+    # Marcadores de Sensores (Icono Profesional)
     for i, p in enumerate(st.session_state.puntos):
         folium.Marker(p, icon=folium.Icon(color='blue', icon='broadcast', prefix='fa'),
                       popup=f"Sensor {i+1}").add_to(m)
@@ -74,7 +75,7 @@ if len(st.session_state.puntos) >= 2:
     
     dist_acumulada = 0.0
     tabla_final = []
-    grafico_data = [] # Lista para el gráfico
+    grafico_data = [] 
     fugas_encontradas = []
 
     for i in range(len(st.session_state.puntos)):
@@ -91,7 +92,7 @@ if len(st.session_state.puntos) >= 2:
             dist_tramo = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
             dist_acumulada += dist_tramo
             
-            # Comparación real vs teórica
+            # Comparación Energía Real vs Teórica
             h_prev = datos_prev['Z'] + (datos_prev['P'] * 0.703)
             delta_h_real = h_prev - energia_h
             hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, dist_tramo) * 0.703
@@ -99,6 +100,7 @@ if len(st.session_state.puntos) >= 2:
             if delta_h_real > hf_teorica:
                 proporcion = hf_teorica / delta_h_real
                 dist_fuga_tramo = dist_tramo * proporcion
+                # Caudal de fuga despejado analíticamente
                 fuga_lps = abs(q_entrada_lps * (1 - (hf_teorica/delta_h_real)**0.54))
                 
                 fugas_encontradas.append({
@@ -107,7 +109,7 @@ if len(st.session_state.puntos) >= 2:
                     "Distancia": dist_acumulada - dist_tramo + dist_fuga_tramo
                 })
 
-        # Datos para la tabla e informe
+        # Datos para Matriz y Perfil
         tabla_final.append({
             "Punto": f"Sensor {i+1}",
             "Cota (msnm)": datos_act['Z'],
@@ -116,14 +118,13 @@ if len(st.session_state.puntos) >= 2:
             "Dist. Acum (m)": round(dist_acumulada, 2)
         })
         
-        # Preparación explícita para el gráfico
         grafico_data.append({
             "Distancia (m)": dist_acumulada,
             "Energía Hidráulica (H)": energia_h,
             "Terreno (Z)": datos_act['Z']
         })
 
-    # --- RENDERIZADO DEL GRADIENTE HIDRÁULICO ---
+    # --- RENDERIZADO DEL PERFIL DE GRADIENTE ---
     st.subheader("📉 Perfil del Gradiente Hidráulico")
     if grafico_data:
         df_plot = pd.DataFrame(grafico_data).set_index("Distancia (m)")
@@ -133,7 +134,7 @@ if len(st.session_state.puntos) >= 2:
     st.subheader("📋 Matriz de Datos de Auditoría")
     st.table(pd.DataFrame(tabla_final))
 
-    # Alertas Forenses
+    # Resultados Forenses
     if fugas_encontradas:
         for f in fugas_encontradas:
             st.error(f"🚨 RUPTURA DETECTADA en {f['Tramo']}: Pérdida de **{f['Caudal']:.2f} L/s** a los **{f['Distancia']:.1f} m**.")
