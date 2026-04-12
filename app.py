@@ -11,7 +11,7 @@ import numpy as np
 from core import haversine, perdida_hazen_williams, territorios, AUTOR
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IANC H2O - Localización de Fugas", layout="wide")
+st.set_page_config(page_title="IANC H2O - Auditoría Forense", layout="wide")
 
 # --- PARÁMETROS GENERALES DE RED (SIDEBAR) ---
 st.sidebar.header("📋 CONFIGURACIÓN DE RED")
@@ -37,7 +37,6 @@ with col_map:
     mun_sel = st.selectbox("Municipio de Operación:", list(territorios.keys()))
     m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
     
-    # Marcadores de Sensores (Broadcast Azul)
     for i, p in enumerate(st.session_state.puntos):
         folium.Marker(p, icon=folium.Icon(color='blue', icon='broadcast', prefix='fa'),
                       popup=f"Sensor {i+1}").add_to(m)
@@ -75,7 +74,7 @@ if len(st.session_state.puntos) >= 2:
     
     dist_acumulada = 0.0
     tabla_final = []
-    grafico_h = []
+    grafico_data = [] # Lista para el gráfico
     fugas_encontradas = []
 
     for i in range(len(st.session_state.puntos)):
@@ -92,7 +91,7 @@ if len(st.session_state.puntos) >= 2:
             dist_tramo = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
             dist_acumulada += dist_tramo
             
-            # Comparación de pérdida real vs teórica (Hazen-Williams)
+            # Comparación real vs teórica
             h_prev = datos_prev['Z'] + (datos_prev['P'] * 0.703)
             delta_h_real = h_prev - energia_h
             hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, dist_tramo) * 0.703
@@ -100,7 +99,6 @@ if len(st.session_state.puntos) >= 2:
             if delta_h_real > hf_teorica:
                 proporcion = hf_teorica / delta_h_real
                 dist_fuga_tramo = dist_tramo * proporcion
-                # Despeje analítico de Q_fuga
                 fuga_lps = abs(q_entrada_lps * (1 - (hf_teorica/delta_h_real)**0.54))
                 
                 fugas_encontradas.append({
@@ -109,7 +107,7 @@ if len(st.session_state.puntos) >= 2:
                     "Distancia": dist_acumulada - dist_tramo + dist_fuga_tramo
                 })
 
-        # Construcción de Matriz
+        # Datos para la tabla e informe
         tabla_final.append({
             "Punto": f"Sensor {i+1}",
             "Cota (msnm)": datos_act['Z'],
@@ -117,14 +115,21 @@ if len(st.session_state.puntos) >= 2:
             "Carga H (mca)": round(energia_h, 2),
             "Dist. Acum (m)": round(dist_acumulada, 2)
         })
-        grafico_h.append({"Distancia": dist_acumulada, "Energía H": energia_h, "Terreno Z": datos_act['Z']})
+        
+        # Preparación explícita para el gráfico
+        grafico_data.append({
+            "Distancia (m)": dist_acumulada,
+            "Energía Hidráulica (H)": energia_h,
+            "Terreno (Z)": datos_act['Z']
+        })
 
-    # Visualización del Gradiente Hidráulico
+    # --- RENDERIZADO DEL GRADIENTE HIDRÁULICO ---
     st.subheader("📉 Perfil del Gradiente Hidráulico")
-    df_grafico = pd.DataFrame(grafico_h).set_index("Distancia")
-    st.line_chart(df_grafico)
+    if grafico_data:
+        df_plot = pd.DataFrame(grafico_data).set_index("Distancia (m)")
+        st.line_chart(df_plot, use_container_width=True)
 
-    # --- TABLA TÉCNICA (MATRIZ DE AUDITORÍA) ---
+    # --- MATRIZ DE DATOS DE AUDITORÍA (INFERIOR) ---
     st.subheader("📋 Matriz de Datos de Auditoría")
     st.table(pd.DataFrame(tabla_final))
 
