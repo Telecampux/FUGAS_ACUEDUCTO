@@ -105,13 +105,29 @@ if modo == "Simulación Interactiva":
                 st.session_state.puntos.append([lat, lng])
                 idx = len(st.session_state.puntos) - 1
                 st.session_state[f"z_{idx}"] = float(obtener_cota_api(lat, lng))
-                st.session_state.animar_terminal = True  # Reactivar animación al añadir punto
+                st.session_state.animar_terminal = True
                 st.rerun()
 
     with col_inputs:
         st.subheader("📡 Lecturas de Campo")
+        nodo_a_borrar = None
+        
         for i in range(len(st.session_state.puntos)):
             with st.expander(f"Sensor Nodo {i+1}", expanded=True):
+                # --- NUEVA SECCIÓN DE CONTROL (MOVER Y ELIMINAR) ---
+                c_lat, c_lon, c_del = st.columns([2, 2, 1])
+                lat_nueva = c_lat.number_input("Lat", value=st.session_state.puntos[i][0], key=f"lat_edit_{i}", format="%.6f", step=0.0001)
+                lon_nueva = c_lon.number_input("Lon", value=st.session_state.puntos[i][1], key=f"lon_edit_{i}", format="%.6f", step=0.0001)
+                
+                # Actualizar posición en vivo si se modifica
+                if lat_nueva != st.session_state.puntos[i][0] or lon_nueva != st.session_state.puntos[i][1]:
+                    st.session_state.puntos[i] = [lat_nueva, lon_nueva]
+                    st.rerun()
+                
+                if c_del.button("🗑️", key=f"del_btn_{i}", help="Eliminar únicamente este punto"):
+                    nodo_a_borrar = i
+                # ---------------------------------------------------
+
                 c1, c2 = st.columns(2)
                 p_in = c1.number_input(f"Presión (PSI)", key=f"p_{i}", value=0.0, format="%.2f")
                 if f"z_{i}" not in st.session_state: st.session_state[f"z_{i}"] = 1000.0
@@ -120,11 +136,16 @@ if modo == "Simulación Interactiva":
                 k_in = st.number_input(f"ΣK Accesorios (Tramo N{i}-N{i+1})", key=f"k_{i}", value=0.0, step=0.1) if i < len(st.session_state.puntos)-1 else 0.0
                 st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in, "K": k_in}
 
-        if st.button("🔄 Nueva Localización", use_container_width=True):
+        # Ejecutar borrado si se solicitó
+        if nodo_a_borrar is not None:
+            st.session_state.puntos.pop(nodo_a_borrar)
+            st.rerun()
+
+        if st.button("🔄 Borrar Toda la Localización", use_container_width=True):
             st.session_state.puntos = []
             st.session_state.datos_sensores = {}
             for key in list(st.session_state.keys()):
-                if key.startswith("z_") or key.startswith("p_") or key.startswith("k_"): del st.session_state[key]
+                if key.startswith("z_") or key.startswith("p_") or key.startswith("k_") or key.startswith("lat_") or key.startswith("lon_"): del st.session_state[key]
             st.rerun()
 
     # --- CÁLCULOS E INFORME (Modo Simulación) ---
@@ -139,7 +160,6 @@ if modo == "Simulación Interactiva":
                 st.session_state.animar_terminal = True
                 st.rerun()
 
-        # Contenedor visual tipo Terminal
         terminal_box = st.empty()
         log_lineas = []
         pausa = 0.5 if st.session_state.animar_terminal else 0.0
@@ -193,7 +213,7 @@ if modo == "Simulación Interactiva":
             perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
 
         imprimir_log(">>> ANÁLISIS FINALIZADO CON ÉXITO.")
-        st.session_state.animar_terminal = False # Evitar que re-anime al mover el mapa
+        st.session_state.animar_terminal = False 
 
         st.subheader("📉 Diagnóstico del Gradiente Hidráulico")
         df_p = pd.DataFrame(perfil_grafico)
@@ -243,7 +263,6 @@ elif modo == "Operación Real (Carga Lote)":
                 
                 def log_b(texto):
                     log_batch.append(texto)
-                    # Mostrar solo las últimas 15 líneas para no colapsar la pantalla en miles de registros
                     lineas_visibles = log_batch[-15:] if len(log_batch) > 15 else log_batch
                     terminal_batch.markdown(f"```text\n{chr(10).join(lineas_visibles)}\n```")
                 
@@ -287,7 +306,7 @@ elif modo == "Operación Real (Carga Lote)":
                             alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga})
                             log_b(f"    [!] ANOMALÍA DETECTADA")
                         
-                        time.sleep(0.05) # Pausa rápida para visualizar el progreso masivo
+                        time.sleep(0.05) 
                     
                     barra.progress(int((i / (len(df_lote) - 1)) * 100) if len(df_lote) > 1 else 100)
                     matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": z_act, "Presión": p_in, "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
