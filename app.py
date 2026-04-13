@@ -114,19 +114,16 @@ if modo == "Simulación Interactiva":
         
         for i in range(len(st.session_state.puntos)):
             with st.expander(f"Sensor Nodo {i+1}", expanded=True):
-                # --- NUEVA SECCIÓN DE CONTROL (MOVER Y ELIMINAR) ---
                 c_lat, c_lon, c_del = st.columns([2, 2, 1])
                 lat_nueva = c_lat.number_input("Lat", value=st.session_state.puntos[i][0], key=f"lat_edit_{i}", format="%.6f", step=0.0001)
                 lon_nueva = c_lon.number_input("Lon", value=st.session_state.puntos[i][1], key=f"lon_edit_{i}", format="%.6f", step=0.0001)
                 
-                # Actualizar posición en vivo si se modifica
                 if lat_nueva != st.session_state.puntos[i][0] or lon_nueva != st.session_state.puntos[i][1]:
                     st.session_state.puntos[i] = [lat_nueva, lon_nueva]
                     st.rerun()
                 
                 if c_del.button("🗑️", key=f"del_btn_{i}", help="Eliminar únicamente este punto"):
                     nodo_a_borrar = i
-                # ---------------------------------------------------
 
                 c1, c2 = st.columns(2)
                 p_in = c1.number_input(f"Presión (PSI)", key=f"p_{i}", value=0.0, format="%.2f")
@@ -136,7 +133,6 @@ if modo == "Simulación Interactiva":
                 k_in = st.number_input(f"ΣK Accesorios (Tramo N{i}-N{i+1})", key=f"k_{i}", value=0.0, step=0.1) if i < len(st.session_state.puntos)-1 else 0.0
                 st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in, "K": k_in}
 
-        # Ejecutar borrado si se solicitó
         if nodo_a_borrar is not None:
             st.session_state.puntos.pop(nodo_a_borrar)
             st.rerun()
@@ -255,6 +251,33 @@ elif modo == "Operación Real (Carga Lote)":
 
             st.success("Archivo cargado correctamente. Previsualización de datos:")
             st.dataframe(df_lote.head())
+            
+            # --- NUEVA SECCIÓN: MAPA DEL LOTE DE DATOS ---
+            st.subheader("🗺️ Trazado Geográfico de la Red (Datos Cargados)")
+            try:
+                puntos_lote = df_lote[['latitud', 'longitud']].values.tolist()
+                
+                if puntos_lote:
+                    lat_centro = df_lote['latitud'].mean()
+                    lon_centro = df_lote['longitud'].mean()
+                    
+                    m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
+                    
+                    for i, p in enumerate(puntos_lote):
+                        folium.Marker(
+                            p, 
+                            icon=folium.Icon(color='blue', icon='dot-circle', prefix='fa')
+                        ).add_to(m_lote)
+                    
+                    if len(puntos_lote) > 1:
+                        folium.PolyLine(puntos_lote, color="blue", weight=4, opacity=0.8).add_to(m_lote)
+                        
+                    # returned_objects=[] evita re-ejecuciones de Streamlit al interactuar con el mapa
+                    st_folium(m_lote, width=1000, height=450, returned_objects=[])
+                    
+            except KeyError:
+                st.warning("⚠️ No se pudo generar el mapa: Verifique que el CSV contenga las columnas 'latitud' y 'longitud'.")
+            # ---------------------------------------------
             
             if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
                 st.subheader("🖥️ Consola de Auditoría Masiva (Lote)")
