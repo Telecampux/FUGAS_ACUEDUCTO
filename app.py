@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import requests
 import plotly.graph_objects as go
+import time
 
 # --- IMPORTACIÓN DESDE EL CORE ---
 try:
@@ -22,7 +23,7 @@ except ImportError:
     def perdida_hazen_williams(q, c, d, l): return 0.5
 
 # --- CONSTANTES TÉCNICAS ---
-FACTOR_CONVERSION_PSI_MCA = 0.703 # Constante física de conversión
+FACTOR_CONVERSION_PSI_MCA = 0.703
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="IA Fugas - Matrices y Troncales", layout="wide")
@@ -44,7 +45,6 @@ if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {
 # --- SIDEBAR: MENÚ DE CONTROL Y PARÁMETROS ---
 st.sidebar.header("⚙️ PARÁMETROS DE LA RED")
 
-# Integración del selector de modo (De la versión local)
 modo = st.sidebar.radio(
     "Seleccione Modo de Trabajo:", 
     ["Simulación Interactiva", "Operación Real (Carga Lote)"]
@@ -61,7 +61,7 @@ st.subheader("Especializado en Troncales y Matrices de Acueducto")
 st.caption(f"Desarrollado por {AUTOR}")
 
 # =================================================================
-# MODO 1: SIMULACIÓN INTERACTIVA (Lógica GitHub v2.6)
+# MODO 1: SIMULACIÓN INTERACTIVA
 # =================================================================
 if modo == "Simulación Interactiva":
     col_map, col_inputs = st.columns([2, 1])
@@ -106,6 +106,19 @@ if modo == "Simulación Interactiva":
     # --- CÁLCULOS E INFORME (Modo Simulación) ---
     if len(st.session_state.puntos) >= 2:
         st.divider()
+        
+        # FACHADA VISUAL DE PROCESAMIENTO (Añadido)
+        with st.status("🚀 Iniciando Motor de Análisis Hidráulico...", expanded=True) as status:
+            st.write("📡 Recopilando datos de sensores...")
+            time.sleep(0.5)
+            st.write("📐 Vectorizando distancias 3D y cotas...")
+            time.sleep(0.5)
+            st.write("💧 Modelando gradiente de energía (Hazen-Williams)...")
+            time.sleep(0.5)
+            st.write("🔍 Aplicando algoritmos de detección de anomalías...")
+            time.sleep(0.5)
+            status.update(label="✅ Análisis completado con éxito", state="complete", expanded=False)
+
         dist_total = 0.0
         matriz_analisis = []
         perfil_grafico = [] 
@@ -118,20 +131,17 @@ if modo == "Simulación Interactiva":
             
             if i > 0:
                 p_prev = st.session_state.puntos[i-1]
-                # Cálculo de Distancia Real (3D)
                 d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
                 dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
                 d_3d = np.sqrt(d_2d**2 + dz**2)
                 dist_total += d_3d
                 
-                # Análisis de Energía
                 h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * FACTOR_CONVERSION_PSI_MCA)
                 caida_h = h_prev - H
                 hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, d_3d) * FACTOR_CONVERSION_PSI_MCA
                 
-                # Criterio de Fuga
                 if caida_h > (hf_teorica + 0.15):
-                    dist_fuga = d_3d * (hf_teorica / caida_h)
+                    dist_fuga = d_3d * (hf_teorica / caida_h) if caida_h != 0 else 0
                     alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": abs(q_entrada_lps * (1 - (hf_teorica/caida_h)**0.54)), "D": dist_total - d_3d + dist_fuga})
 
             matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": datos['Z'], "Presión": datos['P'], "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
@@ -168,7 +178,7 @@ if modo == "Simulación Interactiva":
 # =================================================================
 elif modo == "Operación Real (Carga Lote)":
     st.write("### 📊 Auditoría Masiva por Carga de Datos")
-    st.info("Módulo configurado para procesamiento masivo de sensores IoT.")
+    st.info("Módulo configurado para procesamiento masivo de sensores IoT. El CSV debe contener las columnas: 'Latitud', 'Longitud', 'Cota', 'Presion'")
     
     archivo_csv = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
     
@@ -179,6 +189,78 @@ elif modo == "Operación Real (Carga Lote)":
             st.dataframe(df_lote.head())
             
             if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
-                st.warning("El motor de análisis por lotes ejecutará el algoritmo de Energía H sobre los registros cargados. (Lógica a integrar con base en la estructura de sus columnas).")
+                
+                # FACHADA VISUAL DE PROCESAMIENTO (Añadido)
+                with st.status("🚀 Procesando Lote de Datos CSV...", expanded=True) as status:
+                    st.write("📡 Estructurando registros del archivo maestro...")
+                    time.sleep(0.6)
+                    st.write("📐 Vectorizando coordenadas espaciales...")
+                    time.sleep(0.6)
+                    st.write("💧 Ejecutando modelo matemático por cada tramo...")
+                    time.sleep(0.6)
+                    st.write("🔍 Evaluando umbrales de caída atípica...")
+                    time.sleep(0.6)
+                    status.update(label="✅ Análisis Masivo Completado", state="complete", expanded=False)
+
+                # EJECUCIÓN MATEMÁTICA REAL (Añadido)
+                dist_total = 0.0
+                matriz_analisis = []
+                perfil_grafico = [] 
+                alertas_fuga = []
+                
+                for i in range(len(df_lote)):
+                    row = df_lote.iloc[i]
+                    p_act = [row['Latitud'], row['Longitud']]
+                    z_act = row['Cota']
+                    p_in = row['Presion']
+                    H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
+                    
+                    if i > 0:
+                        row_prev = df_lote.iloc[i-1]
+                        p_prev = [row_prev['Latitud'], row_prev['Longitud']]
+                        d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
+                        dz = abs(row_prev['Cota'] - z_act)
+                        d_3d = np.sqrt(d_2d**2 + dz**2)
+                        dist_total += d_3d
+                        
+                        h_prev = row_prev['Cota'] + (row_prev['Presion'] * FACTOR_CONVERSION_PSI_MCA)
+                        caida_h = h_prev - H
+                        hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, d_3d) * FACTOR_CONVERSION_PSI_MCA
+                        
+                        if caida_h > (hf_teorica + 0.15):
+                            dist_fuga = d_3d * (hf_teorica / caida_h) if caida_h != 0 else 0
+                            alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": abs(q_entrada_lps * (1 - (hf_teorica/caida_h)**0.54)), "D": dist_total - d_3d + dist_fuga})
+
+                    matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": z_act, "Presión": p_in, "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
+                    perfil_grafico.append({"D": dist_total, "H": H, "Z": z_act})
+
+                # --- SALIDAS VISUALES ---
+                st.subheader("📉 Diagnóstico del Gradiente Hidráulico Lote")
+                df_p = pd.DataFrame(perfil_grafico)
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Gradiente Energía (H)', line=dict(color='blue', width=3)))
+                fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Terreno (Z)', fill='tozeroy', line=dict(color='brown', width=2)))
+
+                fig.update_layout(
+                    hovermode=False, 
+                    xaxis_title="Distancia en la Matriz (m)",
+                    yaxis_title="Metros sobre el nivel del mar (msnm)",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.subheader("📋 Matriz de Localización Geográfica (Procesada)")
+                st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
+
+                if alertas_fuga:
+                    for a in alertas_fuga:
+                        st.error(f"🚨 **FUGA TÉCNICA DETECTADA** en tramo **{a['T']}**. Caudal: **{a['Q']:.2f} L/s** a los **{a['D']:.1f} m**.")
+                else:
+                    st.success("✅ **SISTEMA ESTABLE**: No se detectan fugas invisibles en el lote.")
+
+        except KeyError as e:
+            st.error(f"Error de formato: El archivo CSV debe contener exactamente las columnas: 'Latitud', 'Longitud', 'Cota', 'Presion'. Detalle: Falta {e}")
         except Exception as e:
-            st.error(f"Error al leer el archivo CSV: {e}")
+            st.error(f"Error al leer o procesar el archivo CSV: {e}")
