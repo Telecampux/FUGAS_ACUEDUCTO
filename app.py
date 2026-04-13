@@ -2,7 +2,7 @@
 # SISTEMA IA PARA LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES 
 # ESPECIALIZADO EN REDES TRONCALES Y MATRICES DE ACUEDUCTOS
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
-# Versión: 2.6 - Gráficos de Alta Precisión sin Tooltips Distractores
+# Versión: 2.6 - Gráficos de Alta Precisión sin Tooltips Distractores (Revisión)
 # =============================================================================
 
 import streamlit as st
@@ -97,7 +97,7 @@ if modo == "Simulación Interactiva":
         if len(st.session_state.puntos) > 1:
             folium.PolyLine(st.session_state.puntos, color="red", weight=4).add_to(m)
 
-        mapa_data = st_folium(m, width=700, height=450)
+        mapa_data = st_folium(m, width=700, height=450, key="mapa_simulacion")
         
         if mapa_data and mapa_data.get('last_clicked'):
             lat, lng = mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']
@@ -243,7 +243,10 @@ elif modo == "Operación Real (Carga Lote)":
         try:
             df_lote = pd.read_csv(archivo_csv, sep=None, engine='python', encoding_errors='ignore')
             
-            df_lote.columns = (df_lote.columns.str.replace('\ufeff', '', regex=False).str.strip().str.lower().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
+            # Limpieza exhaustiva de cabeceras
+            df_lote.columns = (df_lote.columns.str.replace('\ufeff', '', regex=False)
+                               .str.strip().str.lower().str.normalize('NFKD')
+                               .str.encode('ascii', errors='ignore').str.decode('utf-8'))
             df_lote.rename(columns={'cota_z': 'cota', 'presion_psi': 'presion', 'sumatoria_k': 'sum_k'}, inplace=True)
             
             if 'sum_k' not in df_lote.columns:
@@ -252,32 +255,48 @@ elif modo == "Operación Real (Carga Lote)":
             st.success("Archivo cargado correctamente. Previsualización de datos:")
             st.dataframe(df_lote.head())
             
-            # --- NUEVA SECCIÓN: MAPA DEL LOTE DE DATOS ---
+            # =================================================================
+            # NUEVA SECCIÓN: RENDERIZADO DEL MAPA EN MODO LOTE (VERSIÓN ROBUSTA)
+            # =================================================================
             st.subheader("🗺️ Trazado Geográfico de la Red (Datos Cargados)")
-            try:
-                puntos_lote = df_lote[['latitud', 'longitud']].values.tolist()
-                
-                if puntos_lote:
-                    lat_centro = df_lote['latitud'].mean()
-                    lon_centro = df_lote['longitud'].mean()
+            
+            # 1. Búsqueda dinámica y difusa de columnas
+            cols = df_lote.columns.tolist()
+            lat_col = next((c for c in cols if 'lat' in c.lower()), None)
+            lon_col = next((c for c in cols if 'lon' in c.lower()), None)
+            
+            if lat_col and lon_col:
+                try:
+                    # Extraer puntos y eliminar filas vacías (NaNs) que rompen Folium
+                    df_coords = df_lote[[lat_col, lon_col]].dropna()
+                    puntos_lote = df_coords.values.tolist()
                     
-                    m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
-                    
-                    for i, p in enumerate(puntos_lote):
-                        folium.Marker(
-                            p, 
-                            icon=folium.Icon(color='blue', icon='dot-circle', prefix='fa')
-                        ).add_to(m_lote)
-                    
-                    if len(puntos_lote) > 1:
-                        folium.PolyLine(puntos_lote, color="blue", weight=4, opacity=0.8).add_to(m_lote)
+                    if puntos_lote:
+                        # Calcular centroide manualmente para máxima compatibilidad
+                        lat_centro = sum([p[0] for p in puntos_lote]) / len(puntos_lote)
+                        lon_centro = sum([p[1] for p in puntos_lote]) / len(puntos_lote)
                         
-                    # returned_objects=[] evita re-ejecuciones de Streamlit al interactuar con el mapa
-                    st_folium(m_lote, width=1000, height=450, returned_objects=[])
-                    
-            except KeyError:
-                st.warning("⚠️ No se pudo generar el mapa: Verifique que el CSV contenga las columnas 'latitud' y 'longitud'.")
-            # ---------------------------------------------
+                        m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
+                        
+                        for p in puntos_lote:
+                            folium.Marker(
+                                p, 
+                                icon=folium.Icon(color='blue', icon='dot-circle', prefix='fa')
+                            ).add_to(m_lote)
+                        
+                        if len(puntos_lote) > 1:
+                            folium.PolyLine(puntos_lote, color="blue", weight=4, opacity=0.8).add_to(m_lote)
+                            
+                        # 2. SE AGREGA UNA 'KEY' ÚNICA PARA EVITAR CONFLICTOS
+                        st_folium(m_lote, width=1000, height=450, key="mapa_auditoria_lote", returned_objects=[])
+                    else:
+                        st.info("El CSV no contiene coordenadas válidas para graficar.")
+                        
+                except Exception as e:
+                    st.error(f"Error interno al trazar el mapa: {e}")
+            else:
+                st.warning(f"⚠️ Imposible graficar: No se encontraron columnas de latitud/longitud. Columnas detectadas: {cols}")
+            # =================================================================
             
             if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
                 st.subheader("🖥️ Consola de Auditoría Masiva (Lote)")
@@ -299,9 +318,14 @@ elif modo == "Operación Real (Carga Lote)":
                 
                 barra = st.progress(0)
                 
+                # Se utilizan las columnas detectadas dinámicamente para procesar si se encontraron, 
+                # de lo contrario, intenta usar 'latitud' y 'longitud' por defecto.
+                columna_lat = lat_col if lat_col else 'latitud'
+                columna_lon = lon_col if lon_col else 'longitud'
+                
                 for i in range(len(df_lote)):
                     row = df_lote.iloc[i]
-                    p_act = [row['latitud'], row['longitud']]
+                    p_act = [row[columna_lat], row[columna_lon]]
                     z_act = row['cota']
                     p_in = row['presion']
                     H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
@@ -309,7 +333,7 @@ elif modo == "Operación Real (Carga Lote)":
                     if i > 0:
                         log_b(f"[*] Calculando Nodo {i} -> Nodo {i+1}...")
                         row_prev = df_lote.iloc[i-1]
-                        p_prev = [row_prev['latitud'], row_prev['longitud']]
+                        p_prev = [row_prev[columna_lat], row_prev[columna_lon]]
                         d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
                         dz = abs(row_prev['cota'] - z_act)
                         d_3d = np.sqrt(d_2d**2 + dz**2)
