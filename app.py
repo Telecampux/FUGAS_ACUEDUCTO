@@ -1,13 +1,18 @@
+# =============================================================================
+# SISTEMA IA PARA LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES 
+# ESPECIALIZADO EN REDES TRONCALES Y MATRICES DE ACUEDUCTOS
+# Autor: Ing. Adolfo Barrera Vargas | (c) 2026
+# =============================================================================
+
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import requests
-import time
+import plotly.graph_objects as go
 
-# --- IMPORTACIÓN LÓGICA ---
+# --- IMPORTACIÓN DESDE EL CORE ---
 try:
     from core import haversine, perdida_hazen_williams, territorios, AUTOR
 except ImportError:
@@ -16,143 +21,164 @@ except ImportError:
     def haversine(lat1, lon1, lat2, lon2): return 100.0
     def perdida_hazen_williams(q, c, d, l): return 0.5
 
-# --- CONFIGURACIÓN ESTÉTICA ---
-st.set_page_config(page_title="IA Fugas Pro - Troncales", layout="wide", page_icon="💧")
+# --- CONSTANTES TÉCNICAS ---
+FACTOR_CONVERSION_PSI_MCA = 0.703 # Constante física de conversión
 
-# CSS para mejorar el look & feel
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; }
-    </style>
-    """, unsafe_allow_html=True)
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="IA Fugas - Matrices y Troncales", layout="wide")
 
 def obtener_cota_api(lat, lon):
     try:
         url = f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}"
-        r = requests.get(url, timeout=3).json()
-        return round(r["elevation"][0], 2) if "elevation" in r else 1000.0
-    except: return 1000.0
+        respuesta = requests.get(url, timeout=3).json()
+        if "elevation" in respuesta and respuesta["elevation"]:
+            return round(respuesta["elevation"][0], 2)
+    except Exception:
+        pass
+    return 1000.0
 
-# --- SIDEBAR (PARAMETRIZACIÓN) ---
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3105/3105807.png", width=80)
-    st.header("⚙️ Ingeniería de Red")
-    q_entrada = st.number_input("Caudal (L/s)", value=20.0, format="%.1f")
-    dn_pulg = st.selectbox("Diámetro (Pulg)", [1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24], index=6)
-    coef_c = st.slider("Coeficiente C (Material)", 100, 150, 140)
-    st.divider()
-    st.caption(f"© 2026 | {AUTOR}")
-
-# --- ESTADO DE SESIÓN ---
+# --- INICIALIZACIÓN DE VARIABLES DE ESTADO ---
 if 'puntos' not in st.session_state: st.session_state.puntos = []
 if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {}
 
-# --- CABEZOTE ---
-st.title("📡 SISTEMA IA: AUDITORÍA DE MATRICES")
-st.markdown("---")
+# --- SIDEBAR: MENÚ DE CONTROL Y PARÁMETROS ---
+st.sidebar.header("⚙️ PARÁMETROS DE LA RED")
 
-col_map, col_inputs = st.columns([1.8, 1])
+# Integración del selector de modo (De la versión local)
+modo = st.sidebar.radio(
+    "Seleccione Modo de Trabajo:", 
+    ["Simulación Interactiva", "Operación Real (Carga Lote)"]
+)
+st.sidebar.divider()
 
-with col_map:
-    mun_sel = st.selectbox("Seleccione Municipio de Operación:", list(territorios.keys()))
-    m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16, tiles="cartodbpositron")
-    
-    for i, p in enumerate(st.session_state.puntos):
-        folium.Marker(p, icon=folium.Icon(color='blue', icon='info-sign')).add_to(m)
-    if len(st.session_state.puntos) > 1:
-        folium.PolyLine(st.session_state.puntos, color="#2E86C1", weight=5, opacity=0.8).add_to(m)
+q_entrada_lps = st.sidebar.number_input("Caudal Nominal (L/s)", value=20.0, step=0.1, format="%.1f")
+dn_pulg = st.sidebar.selectbox("Diámetro (Pulg)", [1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24], index=6)
+coef_c = st.sidebar.slider("Coeficiente C", 100, 150, 140)
 
-    mapa_data = st_folium(m, width="100%", height=450)
-    
-    if mapa_data and mapa_data.get('last_clicked'):
-        lat, lng = mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']
-        if [lat, lng] not in st.session_state.puntos:
-            st.session_state.puntos.append([lat, lng])
-            idx = len(st.session_state.puntos) - 1
-            st.session_state[f"z_{idx}"] = float(obtener_cota_api(lat, lng))
+# --- ENCABEZADO PRINCIPAL ---
+st.title("SISTEMA IA: LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES")
+st.subheader("Especializado en Troncales y Matrices de Acueducto")
+st.caption(f"Desarrollado por {AUTOR}")
+
+# =================================================================
+# MODO 1: SIMULACIÓN INTERACTIVA (Lógica GitHub v2.6)
+# =================================================================
+if modo == "Simulación Interactiva":
+    col_map, col_inputs = st.columns([2, 1])
+
+    with col_map:
+        mun_sel = st.selectbox("Zona de Operación:", list(territorios.keys()))
+        m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
+        
+        for i, p in enumerate(st.session_state.puntos):
+            folium.Marker(p, icon=folium.Icon(color='red', icon='dot-circle', prefix='fa')).add_to(m)
+        
+        if len(st.session_state.puntos) > 1:
+            folium.PolyLine(st.session_state.puntos, color="red", weight=4).add_to(m)
+
+        mapa_data = st_folium(m, width=700, height=450)
+        
+        if mapa_data and mapa_data.get('last_clicked'):
+            lat, lng = mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']
+            if [lat, lng] not in st.session_state.puntos:
+                st.session_state.puntos.append([lat, lng])
+                idx = len(st.session_state.puntos) - 1
+                st.session_state[f"z_{idx}"] = float(obtener_cota_api(lat, lng))
+                st.rerun()
+
+    with col_inputs:
+        st.subheader("📡 Lecturas de Campo")
+        for i in range(len(st.session_state.puntos)):
+            with st.expander(f"Sensor Nodo {i+1}", expanded=True):
+                c1, c2 = st.columns(2)
+                p_in = c1.number_input(f"Presión (PSI)", key=f"p_{i}", value=0.0, format="%.2f")
+                if f"z_{i}" not in st.session_state: st.session_state[f"z_{i}"] = 1000.0
+                z_in = c2.number_input(f"Cota (msnm)", key=f"z_{i}", step=0.01, format="%.2f")
+                st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in}
+
+        if st.button("🔄 Nueva Localización", use_container_width=True):
+            st.session_state.puntos = []
+            st.session_state.datos_sensores = {}
+            for key in list(st.session_state.keys()):
+                if key.startswith("z_") or key.startswith("p_"): del st.session_state[key]
             st.rerun()
 
-with col_inputs:
-    st.subheader("📍 Nodos de Presión")
-    for i in range(len(st.session_state.puntos)):
-        with st.expander(f"🔵 SENSOR NODO {i+1}", expanded=(i == len(st.session_state.puntos)-1)):
-            c1, c2 = st.columns(2)
-            p_in = c1.number_input(f"Presión (PSI)", key=f"p_{i}", value=0.0)
-            z_in = c2.number_input(f"Cota (msnm)", key=f"z_{i}", step=0.1)
-            st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in}
+    # --- CÁLCULOS E INFORME (Modo Simulación) ---
+    if len(st.session_state.puntos) >= 2:
+        st.divider()
+        dist_total = 0.0
+        matriz_analisis = []
+        perfil_grafico = [] 
+        alertas_fuga = []
 
-    if st.button("🗑️ Reiniciar Análisis", use_container_width=True):
-        st.session_state.puntos = []
-        st.session_state.datos_sensores = {}
-        st.rerun()
-
-# --- MOTOR DE CÁLCULO Y PRESENTACIÓN FLORIDA ---
-if len(st.session_state.puntos) >= 2:
-    with st.spinner("🚀 IA Procesando Gradiente Hidráulico..."):
-        time.sleep(0.8) # Efecto visual para el usuario
-        
-    st.divider()
-    
-    # Cálculos Internos
-    matriz_analisis = []
-    perfil_grafico = []
-    alertas_fuga = []
-    dist_total = 0.0
-
-    for i in range(len(st.session_state.puntos)):
-        p_act = st.session_state.puntos[i]
-        datos = st.session_state.datos_sensores[i]
-        H = datos['Z'] + (datos['P'] * 0.703) # Energía Total
-        
-        if i > 0:
-            p_prev = st.session_state.puntos[i-1]
-            d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
-            dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
-            d_3d = np.sqrt(d_2d**2 + dz**2)
-            dist_total += d_3d
+        for i in range(len(st.session_state.puntos)):
+            p_act = st.session_state.puntos[i]
+            datos = st.session_state.datos_sensores[i]
+            H = datos['Z'] + (datos['P'] * FACTOR_CONVERSION_PSI_MCA)
             
-            h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * 0.703)
-            caida_real = h_prev - H
-            hf_teorica = perdida_hazen_williams(q_entrada, coef_c, dn_pulg, d_3d) * 0.703
-            
-            if caida_real > (hf_teorica + 0.20): # Umbral de sensibilidad
-                dist_fuga = d_3d * (hf_teorica / caida_real)
-                alertas_fuga.append({"T": f"Tramo {i}-{i+1}", "Q": abs(q_entrada * (1 - (hf_teorica/caida_real)**0.54)), "D": dist_total - d_3d + dist_fuga})
+            if i > 0:
+                p_prev = st.session_state.puntos[i-1]
+                # Cálculo de Distancia Real (3D)
+                d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
+                dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
+                d_3d = np.sqrt(d_2d**2 + dz**2)
+                dist_total += d_3d
+                
+                # Análisis de Energía
+                h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * FACTOR_CONVERSION_PSI_MCA)
+                caida_h = h_prev - H
+                hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn_pulg, d_3d) * FACTOR_CONVERSION_PSI_MCA
+                
+                # Criterio de Fuga
+                if caida_h > (hf_teorica + 0.15):
+                    dist_fuga = d_3d * (hf_teorica / caida_h)
+                    alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": abs(q_entrada_lps * (1 - (hf_teorica/caida_h)**0.54)), "D": dist_total - d_3d + dist_fuga})
 
-        matriz_analisis.append({"Nodo": i+1, "Cota (Z)": datos['Z'], "Presión (P)": datos['P'], "Energía (H)": round(H, 2), "Dist. Acum": round(dist_total, 1)})
-        perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
+            matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": datos['Z'], "Presión": datos['P'], "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
+            perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
 
-    # --- SALIDAS FLORIDA (MARKETING DE RESULTADOS) ---
-    c_met1, c_met2, c_met3 = st.columns(3)
-    c_met1.metric("Longitud Auditada", f"{dist_total:.1f} m", "Red Troncal")
-    c_met2.metric("Pérdida de Energía", f"{perfil_grafico[0]['H'] - H:.2f} mca", delta_color="inverse")
-    c_met3.metric("Estado de Integridad", "CRÍTICO" if alertas_fuga else "ÓPTIMO", delta=None)
+        # --- GRÁFICO PROFESIONAL CON PLOTLY ---
+        st.subheader("📉 Diagnóstico del Gradiente Hidráulico")
+        df_p = pd.DataFrame(perfil_grafico)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Gradiente Energía (H)', line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Terreno (Z)', fill='tozeroy', line=dict(color='brown', width=2)))
 
-    # Gráfico Profesional
-    st.subheader("📉 Diagnóstico Visual del Gradiente")
-    df_p = pd.DataFrame(perfil_grafico)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Gradiente de Energía (H)', line=dict(color='#2E86C1', width=4), mode='lines+markers'))
-    fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Tubería (Z)', fill='tozeroy', line=dict(color='#8D6E63', width=2), fillcolor='rgba(141, 110, 99, 0.2)'))
+        fig.update_layout(
+            hovermode=False, 
+            xaxis_title="Distancia en la Matriz (m)",
+            yaxis_title="Metros sobre el nivel del mar (msnm)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=0, r=0, t=30, b=0)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("📋 Matriz de Localización Geográfica")
+        st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
+
+        if alertas_fuga:
+            for a in alertas_fuga:
+                st.error(f"🚨 **FUGA TÉCNICA DETECTADA** en tramo **{a['T']}**. Caudal: **{a['Q']:.2f} L/s** a los **{a['D']:.1f} m**.")
+        else:
+            st.success("✅ **SISTEMA ESTABLE**: No se detectan fugas invisibles.")
+
+# =================================================================
+# MODO 2: OPERACIÓN REAL (Carga Lote - CSV)
+# =================================================================
+elif modo == "Operación Real (Carga Lote)":
+    st.write("### 📊 Auditoría Masiva por Carga de Datos")
+    st.info("Módulo configurado para procesamiento masivo de sensores IoT.")
     
-    fig.update_layout(hovermode=False, height=400, margin=dict(l=0,r=0,t=20,b=0), legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Explicación del Paso a Paso (El "Por qué" de los resultados)
-    with st.expander("📝 VER MEMORIA DE CÁLCULO (PASO A PASO)"):
-        st.write("La IA ha procesado los datos siguiendo estos principios de hidráulica avanzada:")
-        st.latex(r"H = Z + (P \times 0.703)")
-        st.info(f"1. Se calculó la **Energía Total (H)** en cada nodo sumando la cota y la presión convertida a metros.")
-        st.info(f"2. Se aplicó la ecuación de **Hazen-Williams** para determinar la pérdida teórica por fricción en {dn_pulg}\".")
-        st.info(f"3. Se comparó la caída de energía real vs la teórica. Cualquier exceso se marca como **fuga técnica invisible**.")
-
-    # Alertas de Fuga con Diseño Impactante
-    if alertas_fuga:
-        for a in alertas_fuga:
-            st.error(f"### 🚨 FUGA DETECTADA: {a['T']}\n**Localización estimada:** a los **{a['D']:.1f} metros** desde el inicio.  \n**Caudal fugado aprox:** **{a['Q']:.2f} L/s**")
-    else:
-        st.success("✅ **ANÁLISIS DE INTEGRIDAD EXITOSO**: La red no presenta anomalías de presión.")
-
-    st.subheader("📋 Detalle Geográfico de la Matriz")
-    st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
+    archivo_csv = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
+    
+    if archivo_csv is not None:
+        try:
+            df_lote = pd.read_csv(archivo_csv)
+            st.success("Archivo cargado correctamente. Previsualización de datos:")
+            st.dataframe(df_lote.head())
+            
+            if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
+                st.warning("El motor de análisis por lotes ejecutará el algoritmo de Energía H sobre los registros cargados. (Lógica a integrar con base en la estructura de sus columnas).")
+        except Exception as e:
+            st.error(f"Error al leer el archivo CSV: {e}")
