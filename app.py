@@ -209,20 +209,20 @@ if st.session_state.ejecutado and modo == "Simulación Interactiva":
 # =================================================================
 elif modo == "Operación Real (Carga Lote)":
     st.write("### 📊 Auditoría por Carga de Datos")
-    st.info("Módulo configurado para procesamiento masivo de sensores IoT. El archivo debe contener: Latitud, Longitud, Cota, Presion")
+    st.info("Módulo configurado para procesamiento masivo de sensores IoT. El archivo debe contener los campos: latitud, longitud, cota, presion")
     archivo_csv = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
     
     if archivo_csv is not None:
         try:
-            # --- MOTOR DE LECTURA ROBUSTO (TOLERANCIA A FALLOS) ---
+            # --- MOTOR DE LECTURA ROBUSTO CON CONVERSIÓN ESTRICTA A MINÚSCULAS ---
             df_lote = pd.read_csv(archivo_csv, sep=None, engine='python', encoding_errors='ignore')
             
-            # Limpieza exhaustiva de encabezados
+            # Limpieza exhaustiva de encabezados: todo a minúsculas
             df_lote.columns = (
                 df_lote.columns
                 .str.replace('\ufeff', '', regex=False)
                 .str.strip()
-                .str.capitalize()
+                .str.lower() # FORZAR ESTRICTAMENTE A MINÚSCULA
                 .str.normalize('NFKD')
                 .str.encode('ascii', errors='ignore')
                 .str.decode('utf-8')
@@ -244,7 +244,7 @@ elif modo == "Operación Real (Carga Lote)":
                     time.sleep(0.7)
                     status.update(label="✅ Análisis Masivo Completado", state="complete", expanded=False)
 
-                # 2. MOTOR MATEMÁTICO REAL EN LOTE
+                # 2. MOTOR MATEMÁTICO REAL EN LOTE (Extrayendo en minúsculas)
                 dist_total = 0.0
                 matriz_analisis = []
                 perfil_grafico = [] 
@@ -252,20 +252,20 @@ elif modo == "Operación Real (Carga Lote)":
                 
                 for i in range(len(df_lote)):
                     row = df_lote.iloc[i]
-                    p_act = [row['Latitud'], row['Longitud']]
-                    z_act = row['Cota']
-                    p_in = row['Presion']
+                    p_act = [row['latitud'], row['longitud']]
+                    z_act = row['cota']
+                    p_in = row['presion']
                     H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
                     
                     if i > 0:
                         row_prev = df_lote.iloc[i-1]
-                        p_prev = [row_prev['Latitud'], row_prev['Longitud']]
+                        p_prev = [row_prev['latitud'], row_prev['longitud']]
                         d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
-                        dz = abs(row_prev['Cota'] - z_act)
+                        dz = abs(row_prev['cota'] - z_act)
                         d_3d = np.sqrt(d_2d**2 + dz**2)
                         dist_total += d_3d
                         
-                        h_prev = row_prev['Cota'] + (row_prev['Presion'] * FACTOR_CONVERSION_PSI_MCA)
+                        h_prev = row_prev['cota'] + (row_prev['presion'] * FACTOR_CONVERSION_PSI_MCA)
                         caida_h = h_prev - H
                         hf_teorica = perdida_hazen_williams(q_entrada_lps, coef_c, dn, d_3d) * FACTOR_CONVERSION_PSI_MCA
                         
@@ -293,7 +293,7 @@ elif modo == "Operación Real (Carga Lote)":
                     st.success("✅ Lote sin anomalías hidráulicas.")
 
         except KeyError as e:
-            st.error(f"Error estructural residual: Las columnas detectadas en el archivo fueron {list(df_lote.columns)}. Se requiere 'Latitud', 'Longitud', 'Cota', 'Presion'. Faltante o irreconocible: {e}")
+            st.error(f"Error estructural residual: Las columnas detectadas en el archivo fueron {list(df_lote.columns)}. Se requiere estrictamente 'latitud', 'longitud', 'cota', 'presion' en minúsculas. Faltante o irreconocible: {e}")
         except Exception as e:
             st.error(f"Ocurrió un error inesperado al leer el archivo: {e}")
 
