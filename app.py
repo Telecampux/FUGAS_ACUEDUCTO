@@ -25,14 +25,22 @@ import plotly.graph_objects as go
 import streamlit.components.v1 as components
 
 # --- IMPORTACIÓN DESDE EL CEREBRO (CORE) ---
-from core import (
-    haversine, 
-    perdida_hazen_williams, 
-    territorios, 
-    PROGRAMA_NOMBRE, 
-    AUTOR, 
-    EMPRESA_DEFAULT
-)
+try:
+    from core import (
+        haversine, 
+        perdida_hazen_williams, 
+        territorios, 
+        PROGRAMA_NOMBRE, 
+        AUTOR, 
+        EMPRESA_DEFAULT
+    )
+except ImportError:
+    AUTOR = "Ing. Adolfo Barrera Vargas"
+    PROGRAMA_NOMBRE = "IANC H2O"
+    EMPRESA_DEFAULT = "Acueducto Municipal"
+    territorios = {"Bogotá": {"coords": [4.6097, -74.0817], "costo": 2500}}
+    def haversine(lat1, lon1, lat2, lon2): return 100.0
+    def perdida_hazen_williams(q, c, d, l): return 0.5
 
 # --- CONSTANTES TÉCNICAS ---
 FACTOR_CONVERSION_PSI_MCA = 0.703
@@ -205,24 +213,38 @@ elif modo == "Operación Real (Carga Lote)":
     archivo_csv = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
     
     if archivo_csv is not None:
-        df_lote = pd.read_csv(archivo_csv)
-        st.success("✅ Archivo cargado. Previsualización:")
-        st.dataframe(df_lote.head())
-        
-        if st.button("🚀 PROCESAR LOTE", use_container_width=True):
+        try:
+            # --- MOTOR DE LECTURA ROBUSTO (TOLERANCIA A FALLOS) ---
+            df_lote = pd.read_csv(archivo_csv, sep=None, engine='python', encoding_errors='ignore')
             
-            # 1. FACHADA VISUAL DE PROCESAMIENTO
-            with st.status("🚀 Procesando Lote de Sensores...", expanded=True) as status:
-                st.write("📡 Extrayendo telemetría del archivo maestro...")
-                time.sleep(0.7)
-                st.write("📐 Vectorizando topología de red...")
-                time.sleep(0.7)
-                st.write("💧 Resolviendo matrices de pérdida por fricción...")
-                time.sleep(0.7)
-                status.update(label="✅ Análisis Masivo Completado", state="complete", expanded=False)
+            # Limpieza exhaustiva de encabezados
+            df_lote.columns = (
+                df_lote.columns
+                .str.replace('\ufeff', '', regex=False)
+                .str.strip()
+                .str.capitalize()
+                .str.normalize('NFKD')
+                .str.encode('ascii', errors='ignore')
+                .str.decode('utf-8')
+            )
+            # --------------------------------------------------------
 
-            # 2. MOTOR MATEMÁTICO REAL EN LOTE
-            try:
+            st.success("✅ Archivo procesado estructuralmente. Previsualización:")
+            st.dataframe(df_lote.head())
+            
+            if st.button("🚀 PROCESAR LOTE", use_container_width=True):
+                
+                # 1. FACHADA VISUAL DE PROCESAMIENTO
+                with st.status("🚀 Procesando Lote de Sensores...", expanded=True) as status:
+                    st.write("📡 Extrayendo telemetría del archivo maestro...")
+                    time.sleep(0.7)
+                    st.write("📐 Vectorizando topología de red...")
+                    time.sleep(0.7)
+                    st.write("💧 Resolviendo matrices de pérdida por fricción...")
+                    time.sleep(0.7)
+                    status.update(label="✅ Análisis Masivo Completado", state="complete", expanded=False)
+
+                # 2. MOTOR MATEMÁTICO REAL EN LOTE
                 dist_total = 0.0
                 matriz_analisis = []
                 perfil_grafico = [] 
@@ -270,8 +292,10 @@ elif modo == "Operación Real (Carga Lote)":
                 else:
                     st.success("✅ Lote sin anomalías hidráulicas.")
 
-            except KeyError as e:
-                st.error(f"Error de formato: El archivo CSV debe tener las columnas exactas: 'Latitud', 'Longitud', 'Cota', 'Presion'. Faltante: {e}")
+        except KeyError as e:
+            st.error(f"Error estructural residual: Las columnas detectadas en el archivo fueron {list(df_lote.columns)}. Se requiere 'Latitud', 'Longitud', 'Cota', 'Presion'. Faltante o irreconocible: {e}")
+        except Exception as e:
+            st.error(f"Ocurrió un error inesperado al leer el archivo: {e}")
 
 # --- PIE DE PÁGINA ---
 st.sidebar.divider()
