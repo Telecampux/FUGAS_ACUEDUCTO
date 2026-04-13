@@ -19,7 +19,6 @@ try:
 except ImportError:
     AUTOR = "Ing. Adolfo Barrera Vargas"
     territorios = {"Bogotá": {"coords": [4.6097, -74.0817]}}
-    # Funciones dummy en caso de no tener el archivo core.py
     def haversine(lat1, lon1, lat2, lon2): return 100.0
     def perdida_hazen_williams(q, c, d, l): return 0.5
 
@@ -41,18 +40,12 @@ def obtener_cota_api(lat, lon):
     return 1000.0
 
 def calcular_balance_hidraulico(q_lps, d_pulg, c_hazen, dist_m, k_sum):
-    """Calcula la caída teórica considerando fricción (H-W) y pérdidas locales."""
-    # 1. Pérdida por Fricción
     hf = perdida_hazen_williams(q_lps, c_hazen, d_pulg, dist_m)
-    
-    # 2. Cálculo de Velocidad y Pérdida Menor
     q_m3s = q_lps / 1000.0
     d_m = d_pulg * 0.0254
     area = (np.pi * d_m**2) / 4
     velocidad = q_m3s / area
     hm = k_sum * (velocidad**2 / (2 * GRAVEDAD))
-    
-    # 3. Caída Teórica Total en mca
     caida_teorica = (hf * FACTOR_CONVERSION_PSI_MCA) + hm
     return caida_teorica, velocidad
 
@@ -81,8 +74,6 @@ with st.sidebar.expander("📘 Guía de Coeficientes K (Pérdidas Menores)", exp
     * **Codo 90° (R. Largo):** 0.30
     * **Codo 45°:** 0.18
     * **Macro-medidor:** 0.10
-    
-    *El sistema calculará automáticamente la velocidad y aplicará:* $h_m = \sum K \cdot \\frac{v^2}{2g}$
     """)
 
 # --- INTERFAZ ---
@@ -125,9 +116,7 @@ if modo == "Simulación Interactiva":
                 if f"z_{i}" not in st.session_state: st.session_state[f"z_{i}"] = 1000.0
                 z_in = c2.number_input(f"Cota (msnm)", key=f"z_{i}", step=0.01, format="%.2f")
                 
-                # Ingreso del factor K para el tramo que llega a este nodo (ignorado en Nodo 1)
                 k_in = st.number_input(f"ΣK Accesorios (Tramo N{i}-N{i+1})", key=f"k_{i}", value=0.0, step=0.1) if i < len(st.session_state.puntos)-1 else 0.0
-                
                 st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in, "K": k_in}
 
         if st.button("🔄 Nueva Localización", use_container_width=True):
@@ -141,48 +130,57 @@ if modo == "Simulación Interactiva":
     if len(st.session_state.puntos) >= 2:
         st.divider()
         
-        with st.status("🚀 Iniciando Motor Hidráulico V2.7...", expanded=True) as status:
-            st.write("📡 Recopilando datos y coeficientes de válvulas...")
-            time.sleep(0.4)
-            st.write("📐 Calculando vectores 3D y cinemática del flujo...")
-            time.sleep(0.4)
-            st.write("💧 Modelando balance integral (Fricción + Pérdidas Locales)...")
-            time.sleep(0.4)
-            status.update(label="✅ Análisis completado", state="complete", expanded=False)
-
         dist_total = 0.0
         matriz_analisis = []
         perfil_grafico = [] 
         alertas_fuga = []
 
-        for i in range(len(st.session_state.puntos)):
-            p_act = st.session_state.puntos[i]
-            datos = st.session_state.datos_sensores[i]
-            H = datos['Z'] + (datos['P'] * FACTOR_CONVERSION_PSI_MCA)
+        # CAJA DE DIÁLOGO "CACAREANDO" PROCESOS EN VIVO
+        with st.status("🚀 Ejecutando Motor Hidráulico V2.7...", expanded=True) as status:
+            st.write("📡 **Fase 1:** Recopilando datos y validando topología...")
+            time.sleep(0.5)
             
-            if i > 0:
-                p_prev = st.session_state.puntos[i-1]
-                d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
-                dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
-                d_3d = np.sqrt(d_2d**2 + dz**2)
-                dist_total += d_3d
+            for i in range(len(st.session_state.puntos)):
+                p_act = st.session_state.puntos[i]
+                datos = st.session_state.datos_sensores[i]
+                H = datos['Z'] + (datos['P'] * FACTOR_CONVERSION_PSI_MCA)
                 
-                # Caída real medida
-                h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * FACTOR_CONVERSION_PSI_MCA)
-                caida_h_real = h_prev - H
-                
-                # Cálculo integral teórico
-                k_tramo = st.session_state.datos_sensores[i-1].get('K', 0.0)
-                perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
-                
-                # Detección y localización
-                if caida_h_real > (perdida_esperada + 0.15):
-                    dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
-                    q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50)) # Ajustado a exponente de orificio
-                    alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga, "V": v_ms})
+                if i > 0:
+                    st.write(f"⚙️ **Analizando Tramo N{i}-N{i+1}:**")
+                    time.sleep(0.4)
+                    
+                    p_prev = st.session_state.puntos[i-1]
+                    d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
+                    dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
+                    d_3d = np.sqrt(d_2d**2 + dz**2)
+                    dist_total += d_3d
+                    
+                    st.caption(f"↳ Vectorización 3D completada: D_2D={d_2d:.1f}m, ΔZ={dz:.2f}m ➔ **D_3D={d_3d:.1f}m**")
+                    time.sleep(0.3)
+                    
+                    h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * FACTOR_CONVERSION_PSI_MCA)
+                    caida_h_real = h_prev - H
+                    
+                    st.caption(f"↳ Gradiente Medido: H_inicial={h_prev:.2f} mca ➔ H_final={H:.2f} mca | **Caída Real: {caida_h_real:.2f} mca**")
+                    time.sleep(0.3)
+                    
+                    k_tramo = st.session_state.datos_sensores[i-1].get('K', 0.0)
+                    perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
+                    
+                    st.caption(f"↳ Modelo Teórico: Velocidad={v_ms:.2f} m/s, Pérdida Fricción + ΣK({k_tramo}) ➔ **Caída Esperada: {perdida_esperada:.2f} mca**")
+                    time.sleep(0.3)
+                    
+                    if caida_h_real > (perdida_esperada + 0.15):
+                        dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
+                        q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50))
+                        alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga, "V": v_ms})
+                        st.error("⚠️ **¡Atención! Discrepancia detectada en balance de energía.**")
+                        time.sleep(0.4)
 
-            matriz_analisis.append({"Nodo": i + 1, "Cota Z": datos['Z'], "Presión": datos['P'], "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
-            perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
+                matriz_analisis.append({"Nodo": i + 1, "Cota Z": datos['Z'], "Presión": datos['P'], "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
+                perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
+
+            status.update(label="✅ Cálculos finalizados con éxito. Generando gráficos...", state="complete", expanded=False)
 
         st.subheader("📉 Diagnóstico del Gradiente Hidráulico")
         df_p = pd.DataFrame(perfil_grafico)
@@ -213,48 +211,61 @@ elif modo == "Operación Real (Carga Lote)":
         try:
             df_lote = pd.read_csv(archivo_csv, sep=None, engine='python', encoding_errors='ignore')
             
-            # Limpieza robusta
             df_lote.columns = (df_lote.columns.str.strip().str.lower().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
             df_lote.rename(columns={'cota_z': 'cota', 'presion_psi': 'presion', 'sumatoria_k': 'sum_k'}, inplace=True)
             
             if 'sum_k' not in df_lote.columns:
                 df_lote['sum_k'] = 0.0
 
-            st.success("Archivo estructurado correctamente.")
+            st.success("Archivo estructurado correctamente. Listo para procesar.")
             
             if st.button("🚀 Iniciar Auditoría Hidráulica Lote", use_container_width=True):
                 dist_total = 0.0
                 matriz_analisis = []
                 alertas_fuga = []
                 
-                for i in range(len(df_lote)):
-                    row = df_lote.iloc[i]
-                    p_act = [row['latitud'], row['longitud']]
-                    z_act = row['cota']
-                    p_in = row['presion']
-                    H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
+                # CAJA DE DIÁLOGO "CACAREANDO" PROCESOS EN VIVO PARA LOTE
+                with st.status("🚀 Procesando Lote de Sensores...", expanded=True) as status:
+                    st.write(f"📡 **Iniciando barrido:** Leyendo {len(df_lote)} registros de topología y presión...")
                     
-                    if i > 0:
-                        row_prev = df_lote.iloc[i-1]
-                        p_prev = [row_prev['latitud'], row_prev['longitud']]
-                        d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
-                        dz = abs(row_prev['cota'] - z_act)
-                        d_3d = np.sqrt(d_2d**2 + dz**2)
-                        dist_total += d_3d
+                    barra_progreso = st.progress(0)
+                    texto_dinamico = st.empty()
+                    
+                    for i in range(len(df_lote)):
+                        row = df_lote.iloc[i]
+                        p_act = [row['latitud'], row['longitud']]
+                        z_act = row['cota']
+                        p_in = row['presion']
+                        H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
                         
-                        h_prev = row_prev['cota'] + (row_prev['presion'] * FACTOR_CONVERSION_PSI_MCA)
-                        caida_h_real = h_prev - H
-                        
-                        # Integración del factor K desde el CSV
-                        k_tramo = row_prev['sum_k'] 
-                        perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
-                        
-                        if caida_h_real > (perdida_esperada + 0.15):
-                            dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
-                            q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50))
-                            alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga})
+                        if i > 0:
+                            row_prev = df_lote.iloc[i-1]
+                            p_prev = [row_prev['latitud'], row_prev['longitud']]
+                            d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
+                            dz = abs(row_prev['cota'] - z_act)
+                            d_3d = np.sqrt(d_2d**2 + dz**2)
+                            dist_total += d_3d
+                            
+                            h_prev = row_prev['cota'] + (row_prev['presion'] * FACTOR_CONVERSION_PSI_MCA)
+                            caida_h_real = h_prev - H
+                            
+                            k_tramo = row_prev['sum_k'] 
+                            perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
+                            
+                            if caida_h_real > (perdida_esperada + 0.15):
+                                dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
+                                q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50))
+                                alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga})
 
-                    matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": z_act, "Presión": p_in, "Energía H": round(H, 2)})
+                            # Actualización en vivo del cálculo
+                            progreso_pct = int((i / (len(df_lote) - 1)) * 100)
+                            barra_progreso.progress(progreso_pct)
+                            texto_dinamico.caption(f"⚙️ **Calculando Nodo {i} a {i+1}** | Vector D_3D: {d_3d:.1f}m | Caída Real: {caida_h_real:.2f} mca | Caída Teórica (H-W + Accesorios): {perdida_esperada:.2f} mca")
+                            time.sleep(0.05) # Pequeña pausa para que el ojo humano alcance a percibir que sí está trabajando
+
+                        matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": z_act, "Presión": p_in, "Energía H": round(H, 2)})
+
+                    status.update(label="✅ Análisis Masivo Completado con Éxito", state="complete", expanded=False)
 
                 if alertas_fuga:
                     for a in alertas_fuga:
