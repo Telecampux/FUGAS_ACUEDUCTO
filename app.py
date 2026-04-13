@@ -3,94 +3,104 @@ import pandas as pd
 import numpy as np
 
 # =====================================================================
-# CONFIGURACIÓN DE PÁGINA
+# CONFIGURACIÓN DEL ENTORNO
 # =====================================================================
 st.set_page_config(
-    page_title="Análisis de Acueducto",
+    page_title="Sistema de Acueducto",
     page_icon="💧",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # =====================================================================
-# MÓDULO 1: INTERFAZ DE USUARIO Y CARGA DE DATOS
+# INTERFAZ PRINCIPAL
 # =====================================================================
-# Título actualizado según los requerimientos de la topología de red
 st.title("Redes Matrices y Secundarias")
 st.markdown("---")
 
-st.subheader("1. Ingestión de Datos")
-st.info("Por favor, cargue el archivo CSV con los datos de los sensores. Asegúrese de incluir columnas de coordenadas (Latitud/Longitud) para habilitar el módulo geoespacial.")
+st.info("Cargue el archivo CSV de la red. El sistema mapeará los nodos automáticamente antes de ejecutar el análisis de fugas.")
 
+# Módulo de ingesta de datos
 archivo_csv = st.file_uploader("Seleccionar lote de datos (CSV)", type=["csv"])
 
-# =====================================================================
-# MÓDULO 2: LÓGICA DE PROCESAMIENTO Y CÁLCULO
-# =====================================================================
-def ejecutar_calculos_hidraulicos(df_entrada):
-    """
-    Función aislada para el análisis matemático de la red.
-    Aquí debes insertar tu lógica original de cálculo de caudales, presiones, etc.
-    """
-    # Creamos una copia para no alterar el DataFrame original en memoria
-    df_procesado = df_entrada.copy()
-    
-    # --- INICIO DE TU LÓGICA DE CÁLCULO ---
-    # Ejemplo: Si tuvieras que calcular una presión base, lo harías aquí.
-    # df_procesado['Presion_Calculada'] = df_procesado['Caudal'] * 0.85 
-    # --- FIN DE TU LÓGICA DE CÁLCULO ---
-    
-    return df_procesado
-
-# =====================================================================
-# FLUJO PRINCIPAL DE EJECUCIÓN
-# =====================================================================
 if archivo_csv is not None:
     try:
-        # 1. Lectura del archivo crudo
-        df_bruto = pd.read_csv(archivo_csv)
-        
-        # 2. Ejecución del procesamiento matemático
-        with st.spinner('Ejecutando cálculos de red...'):
-            df_final = ejecutar_calculos_hidraulicos(df_bruto)
-        
-        st.success("✅ Análisis de red ejecutado y procesado correctamente.")
-        
-        # 3. Despliegue de la tabla de resultados
-        st.subheader("2. Matriz de Resultados")
-        st.dataframe(df_final, use_container_width=True)
-        
-        st.markdown("---")
+        # Lectura del archivo en memoria
+        df = pd.read_csv(archivo_csv)
         
         # =====================================================================
-        # MÓDULO 3: RENDERIZADO GEOESPACIAL (MAPA)
+        # FASE 1: RENDERIZADO VISUAL INMEDIATO
         # =====================================================================
-        st.subheader("3. Localización de Sensores en el Municipio")
+        st.subheader("1. Ubicación Geoespacial y Estado de Nodos")
         
-        # Búsqueda dinámica y tolerante a fallos de las columnas espaciales
-        columnas = df_final.columns.str.lower()
-        col_lat = next((c for c in df_final.columns if c.lower() in ['latitud', 'lat', 'latitude']), None)
-        col_lon = next((c for c in df_final.columns if c.lower() in ['longitud', 'lon', 'lng', 'longitude']), None)
+        # Búsqueda dinámica de coordenadas (tolerancia a variaciones en los nombres de columna)
+        col_lat = next((c for c in df.columns if c.lower() in ['latitud', 'lat', 'latitude']), None)
+        col_lon = next((c for c in df.columns if c.lower() in ['longitud', 'lon', 'lng', 'longitude']), None)
         
-        if col_lat and col_lon:
-            # Extracción y estandarización estricta para el motor de Streamlit (exige 'LAT' y 'LON')
-            df_mapa = df_final[[col_lat, col_lon]].copy()
-            df_mapa = df_mapa.rename(columns={col_lat: 'LAT', col_lon: 'LON'})
-            
-            # Limpieza profunda: descartar sensores con coordenadas corruptas o nulas
-            # para prevenir el colapso del renderizado del mapa
-            df_mapa['LAT'] = pd.to_numeric(df_mapa['LAT'], errors='coerce')
-            df_mapa['LON'] = pd.to_numeric(df_mapa['LON'], errors='coerce')
-            df_mapa = df_mapa.dropna(subset=['LAT', 'LON'])
-            
-            if not df_mapa.empty:
-                # El motor geoespacial calcula automáticamente el polígono (Bounding Box)
-                # y ajusta el zoom al municipio específico de los datos.
-                st.map(df_mapa)
-                st.caption(f"📌 Se han localizado {len(df_mapa)} sensores operativos en el territorio.")
+        # Layout de visualización: Mapa (70%) y Datos (30%)
+        col_mapa, col_datos = st.columns([7, 3])
+        
+        with col_mapa:
+            if col_lat and col_lon:
+                # Estandarización estricta para el motor de mapas de Streamlit
+                df_mapa = df[[col_lat, col_lon]].copy()
+                df_mapa = df_mapa.rename(columns={col_lat: 'LAT', col_lon: 'LON'})
+                
+                # Limpieza de coordenadas corruptas para evitar colapsos en el renderizado
+                df_mapa['LAT'] = pd.to_numeric(df_mapa['LAT'], errors='coerce')
+                df_mapa['LON'] = pd.to_numeric(df_mapa['LON'], errors='coerce')
+                df_mapa = df_mapa.dropna(subset=['LAT', 'LON'])
+                
+                if not df_mapa.empty:
+                    st.map(df_mapa)
+                else:
+                    st.warning("Precisión informática: Las coordenadas no contienen valores numéricos válidos.")
             else:
-                st.warning("Precisión informática: Las columnas de coordenadas existen, pero no contienen datos numéricos válidos.")
-        else:
-            st.warning("⚠️ Módulo Geoespacial inactivo: No se detectaron columnas de 'Latitud' y 'Longitud' en el archivo procesado.")
-            
+                st.warning("⚠️ Módulo Geoespacial inactivo: No se detectaron columnas de coordenadas válidas en el CSV.")
+
+        with col_datos:
+            st.markdown("**Matriz de Datos Recibida:**")
+            st.dataframe(df, use_container_width=True, height=400)
+            st.caption(f"Total de registros procesados: {len(df)}")
+
+        st.markdown("---")
+
+        # =====================================================================
+        # FASE 2: ANÁLISIS DE CÁLCULO BAJO DEMANDA
+        # =====================================================================
+        st.subheader("2. Análisis de Integridad de Red")
+        st.markdown("Ejecute el motor de cálculo para identificar caídas de presión o anomalías de caudal en las matrices.")
+        
+        if st.button("Ejecutar Detección de Fugas", type="primary"):
+            with st.spinner('Procesando algoritmos hidráulicos...'):
+                
+                # ---------------------------------------------------------
+                # INYECTAR AQUÍ TU LÓGICA DE CÁLCULO ORIGINAL
+                # ---------------------------------------------------------
+                # Como marcador de posición, utilizo una lógica de detección estadística
+                # Asumiendo que existe una columna 'presion' o similar.
+                
+                col_presion = next((c for c in df.columns if 'presion' in c.lower()), None)
+                
+                if col_presion:
+                    # Ejemplo matemático de fondo: Se marca como fuga si la presión cae un 20% bajo la media
+                    umbral = df[col_presion].mean() * 0.8
+                    df['Diagnóstico'] = np.where(df[col_presion] < umbral, "Fuga Probable", "Operativo")
+                    fugas = df[df['Diagnóstico'] == "Fuga Probable"]
+                else:
+                    # Lógica de fallback si no hay columna de presión evidente
+                    df['Diagnóstico'] = "Evaluación Pendiente (Faltan parámetros de presión/caudal)"
+                    fugas = pd.DataFrame()
+                # ---------------------------------------------------------
+
+            # Despliegue de Resultados del Análisis
+            if not fugas.empty:
+                st.error(f"🚨 Alerta: Se han detectado {len(fugas)} nodos con comportamiento anómalo.")
+                st.dataframe(fugas, use_container_width=True)
+            elif col_presion is None:
+                st.info("El análisis requiere que el CSV contenga una columna referida a la presión operativa.")
+            else:
+                st.success("✅ Análisis finalizado: La red opera dentro de los parámetros de normalidad. No se detectaron fugas.")
+
     except Exception as e:
-        st.error(f"Error crítico durante la lectura o procesamiento del archivo: {e}")
+        st.error(f"Se ha producido un error crítico durante la lectura del lote de datos: {e}")
