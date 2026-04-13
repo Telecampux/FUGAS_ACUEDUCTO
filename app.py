@@ -2,7 +2,7 @@
 # SISTEMA IA PARA LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES 
 # ESPECIALIZADO EN REDES TRONCALES Y MATRICES DE ACUEDUCTOS
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
-# Versión: 2.6 - Gráficos de Alta Precisión sin Tooltips Distractores (Revisión)
+# Versión: 2.6 - Gráficos de Alta Precisión con Identificación de Nodos
 # =============================================================================
 
 import streamlit as st
@@ -91,8 +91,13 @@ if modo == "Simulación Interactiva":
         mun_sel = st.selectbox("Zona de Operación:", list(territorios.keys()))
         m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
         
+        # Inclusión de tooltip para identificación de sensores en simulación
         for i, p in enumerate(st.session_state.puntos):
-            folium.Marker(p, icon=folium.Icon(color='red', icon='dot-circle', prefix='fa')).add_to(m)
+            folium.Marker(
+                p, 
+                tooltip=f"Sensor Nodo {i+1}", 
+                icon=folium.Icon(color='red', icon='dot-circle', prefix='fa')
+            ).add_to(m)
         
         if len(st.session_state.puntos) > 1:
             folium.PolyLine(st.session_state.puntos, color="red", weight=4).add_to(m)
@@ -243,7 +248,6 @@ elif modo == "Operación Real (Carga Lote)":
         try:
             df_lote = pd.read_csv(archivo_csv, sep=None, engine='python', encoding_errors='ignore')
             
-            # Limpieza exhaustiva de cabeceras
             df_lote.columns = (df_lote.columns.str.replace('\ufeff', '', regex=False)
                                .str.strip().str.lower().str.normalize('NFKD')
                                .str.encode('ascii', errors='ignore').str.decode('utf-8'))
@@ -256,38 +260,36 @@ elif modo == "Operación Real (Carga Lote)":
             st.dataframe(df_lote.head())
             
             # =================================================================
-            # NUEVA SECCIÓN: RENDERIZADO DEL MAPA EN MODO LOTE (VERSIÓN ROBUSTA)
+            # MAPA DEL LOTE CON IDENTIFICACIÓN DE SENSORES
             # =================================================================
             st.subheader("🗺️ Trazado Geográfico de la Red (Datos Cargados)")
             
-            # 1. Búsqueda dinámica y difusa de columnas
             cols = df_lote.columns.tolist()
             lat_col = next((c for c in cols if 'lat' in c.lower()), None)
             lon_col = next((c for c in cols if 'lon' in c.lower()), None)
             
             if lat_col and lon_col:
                 try:
-                    # Extraer puntos y eliminar filas vacías (NaNs) que rompen Folium
                     df_coords = df_lote[[lat_col, lon_col]].dropna()
                     puntos_lote = df_coords.values.tolist()
                     
                     if puntos_lote:
-                        # Calcular centroide manualmente para máxima compatibilidad
                         lat_centro = sum([p[0] for p in puntos_lote]) / len(puntos_lote)
                         lon_centro = sum([p[1] for p in puntos_lote]) / len(puntos_lote)
                         
                         m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
                         
-                        for p in puntos_lote:
+                        # Inclusión de tooltip dinámico para el modo carga lote
+                        for i, p in enumerate(puntos_lote):
                             folium.Marker(
                                 p, 
+                                tooltip=f"Sensor Nodo {i+1}", 
                                 icon=folium.Icon(color='blue', icon='dot-circle', prefix='fa')
                             ).add_to(m_lote)
                         
                         if len(puntos_lote) > 1:
                             folium.PolyLine(puntos_lote, color="blue", weight=4, opacity=0.8).add_to(m_lote)
                             
-                        # 2. SE AGREGA UNA 'KEY' ÚNICA PARA EVITAR CONFLICTOS
                         st_folium(m_lote, width=1000, height=450, key="mapa_auditoria_lote", returned_objects=[])
                     else:
                         st.info("El CSV no contiene coordenadas válidas para graficar.")
@@ -295,7 +297,7 @@ elif modo == "Operación Real (Carga Lote)":
                 except Exception as e:
                     st.error(f"Error interno al trazar el mapa: {e}")
             else:
-                st.warning(f"⚠️ Imposible graficar: No se encontraron columnas de latitud/longitud. Columnas detectadas: {cols}")
+                st.warning(f"⚠️ Imposible graficar: No se encontraron columnas de latitud/longitud.")
             # =================================================================
             
             if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
@@ -318,8 +320,6 @@ elif modo == "Operación Real (Carga Lote)":
                 
                 barra = st.progress(0)
                 
-                # Se utilizan las columnas detectadas dinámicamente para procesar si se encontraron, 
-                # de lo contrario, intenta usar 'latitud' y 'longitud' por defecto.
                 columna_lat = lat_col if lat_col else 'latitud'
                 columna_lon = lon_col if lon_col else 'longitud'
                 
