@@ -7,145 +7,130 @@ import requests
 import plotly.graph_objects as go
 import time
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN TÉCNICA ---
 st.set_page_config(page_title="IANC_H2O - Análisis Físico", layout="wide")
 
-# --- LÓGICA CORE INTEGRADA ---
+# --- MOTOR DE CÁLCULO (PRECISIÓN DETERMINÍSTICA) ---
 def haversine(lat1, lon1, lat2, lon2):
-    """Calcula la distancia esférica entre dos puntos."""
-    # Radio de la Tierra en metros
-    R = 6371000 
+    R = 6371000  # Radio Tierra en metros
     phi1, phi2 = np.radians(lat1), np.radians(lat2)
-    dphi = np.radians(lat2 - lat1)
-    dlamb = np.radians(lon2 - lon1)
+    dphi, dlamb = np.radians(lat2 - lat1), np.radians(lon2 - lon1)
     a = np.sin(dphi/2)**2 + np.cos(phi1)*np.cos(phi2)*np.sin(dlamb/2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
-    return R * c
+    return R * (2 * np.arctan2(np.sqrt(a), np.sqrt(1-a)))
 
 def perdida_hazen_williams(q, c, d, l):
-    """Ecuación de pérdida por fricción."""
-    q_m3s = q / 1000.0  # L/s a m3/s
-    d_m = d * 0.0254    # Pulgadas a metros
-    if c == 0 or d_m == 0: return 0.0
-    return 10.67 * (q_m3s ** 1.852) * l / ((c ** 1.852) * (d_m ** 4.87))
+    if c == 0 or d == 0: return 0.0
+    return 10.67 * ((q/1000.0)**1.852) * l / ((c**1.852) * ((d*0.0254)**4.87))
 
 def obtener_cota_api(lat, lon):
-    """Consulta elevación topográfica en tiempo real."""
     try:
-        url = f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}"
-        respuesta = requests.get(url, timeout=3).json()
-        if "elevation" in respuesta and respuesta["elevation"]:
-            return round(respuesta["elevation"][0], 2)
-    except Exception: pass
-    return 1000.0
+        res = requests.get(f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}", timeout=2).json()
+        return round(res["elevation"][0], 2) if "elevation" in res else 1000.0
+    except: return 1000.0
 
-# --- CONSTANTES TÉCNICAS DETERMINÍSTICAS ---
-FACTOR_CONVERSION_PSI_MCA = 0.7032
-GRAVEDAD = 9.81
-UMBRAL_FUGA_MCA = 0.20 * FACTOR_CONVERSION_PSI_MCA 
+# --- CONSTANTES ---
+FACTOR_PSI_MCA = 0.7032
 AUTOR = "Ing. Adolfo Barrera Vargas"
 
-# --- INTERFAZ STREAMLIT ---
-st.title("IANC_H2O: LOCALIZACIÓN DE FUGAS INVISIBLES EN ACUEDUCTOS")
-st.subheader("Motor Determinístico: Análisis de Gradiente de Energía")
-st.caption(f"Desarrollado por {AUTOR} | Versión 3.5.0 Professional")
+# --- INTERFAZ ---
+st.title("IANC_H2O: LOCALIZACIÓN DE FUGAS (RED MATRIZ)")
+st.caption(f"Motor de Análisis Físico Independiente del Material | {AUTOR}")
 
-# --- SIDEBAR: CONTROL DEL SISTEMA ---
+# Sidebar
 with st.sidebar:
-    st.header("⚙️ CONFIGURACIÓN")
-    modo = st.radio("Entorno:", ["Simulación Interactiva", "Carga por Lote (CSV)"])
+    st.header("⚙️ Parámetros de Diseño")
+    q_lps = st.number_input("Caudal (L/s)", value=20.0)
+    dn_pulg = st.selectbox("Diámetro (Pulg)", [3, 4, 6, 8, 10, 12, 16, 24], index=2)
+    coef_c = st.slider("Coeficiente C", 100, 150, 140)
     st.divider()
-    
-    if modo == "Simulación Interactiva":
-        q_lps = st.number_input("Caudal (L/s)", value=20.0)
-        dn_pulg = st.selectbox("Diámetro (Pulg)", [2, 3, 4, 6, 8, 10, 12, 24], index=3)
-        coef_c = st.slider("Coeficiente C (Fricción)", 100, 150, 140)
-    else:
-        st.info("Variables dinámicas leídas desde archivo.")
+    if st.button("🗑️ Reiniciar Sistema"):
+        st.session_state.puntos = []
+        st.rerun()
 
-# --- ESTADO DE SESIÓN ---
+# Inicialización de Estado
 if 'puntos' not in st.session_state: st.session_state.puntos = []
-if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {}
 
-# --- LÓGICA DE SIMULACIÓN ---
-if modo == "Simulación Interactiva":
-    col_map, col_inputs = st.columns([2, 1])
+col_map, col_inputs = st.columns([2, 1])
 
-    with col_map:
-        st.markdown("### 🗺️ Mapa de Red")
-        m = folium.Map(location=[4.6097, -74.0817], zoom_start=12)
-        for i, p in enumerate(st.session_state.puntos):
-            folium.Marker(p, tooltip=f"Nodo {i+1}").add_to(m)
-        if len(st.session_state.puntos) > 1:
-            folium.PolyLine(st.session_state.puntos, color="blue").add_to(m)
+with col_map:
+    m = folium.Map(location=[4.60, -74.08], zoom_start=12)
+    for i, p in enumerate(st.session_state.puntos):
+        folium.Marker(p, tooltip=f"Nodo {i+1}").add_to(m)
+    if len(st.session_state.puntos) > 1:
+        folium.PolyLine(st.session_state.puntos, color="blue").add_to(m)
+    
+    mapa_data = st_folium(m, width=700, height=450)
+    if mapa_data and mapa_data.get('last_clicked'):
+        nuevo_p = [mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']]
+        if nuevo_p not in st.session_state.puntos:
+            st.session_state.puntos.append(nuevo_p)
+            st.rerun()
+
+with col_inputs:
+    st.subheader("📡 Sensores de Presión")
+    datos_sensores = {}
+    for i in range(len(st.session_state.puntos)):
+        with st.expander(f"Nodo {i+1}", expanded=True):
+            p_val = st.number_input(f"Presión (PSI)", key=f"p_{i}", value=30.0)
+            z_val = st.number_input(f"Cota (msnm)", key=f"z_{i}", value=obtener_cota_api(st.session_state.puntos[i][0], st.session_state.puntos[i][1]))
+            datos_sensores[i] = {"P": p_val, "Z": z_val}
+
+# --- PROCESAMIENTO ---
+if len(st.session_state.puntos) >= 2:
+    if st.button("🚀 EJECUTAR ANÁLISIS DE GRADIENTE", type="primary", use_container_width=True):
+        matriz, alertas = [], []
+        dist_acum = 0.0
         
-        mapa_data = st_folium(m, width=700, height=450)
-        if mapa_data and mapa_data.get('last_clicked'):
-            lat, lng = mapa_data['last_clicked']['lat'], mapa_data['last_clicked']['lng']
-            if [lat, lng] not in st.session_state.puntos:
-                st.session_state.puntos.append([lat, lng])
-                st.rerun()
+        # Estado Inicial Nodo 1
+        h_prev = datos_sensores[0]['Z'] + (datos_sensores[0]['P'] * FACTOR_PSI_MCA)
+        matriz.append({"Nodo": "N-1", "H (mca)": round(h_prev, 2), "D (m)": 0.0})
 
-    with col_inputs:
-        st.subheader("📡 Lecturas de Campo")
-        for i in range(len(st.session_state.puntos)):
-            with st.expander(f"Sensor Nodo {i+1}", expanded=True):
-                p_in = st.number_input(f"Presión (PSI)", key=f"p_{i}", value=20.0)
-                z_in = st.number_input(f"Cota (msnm)", key=f"z_{i}", value=obtener_cota_api(st.session_state.puntos[i][0], st.session_state.puntos[i][1]))
-                st.session_state.datos_sensores[i] = {"P": p_in, "Z": z_in}
-
-    if len(st.session_state.puntos) >= 2:
-        if st.button("🚀 EJECUTAR ANÁLISIS DE GRADIENTE", use_container_width=True, type="primary"):
-            # LÓGICA DE PROCESAMIENTO
-            alertas = []
-            matriz = []
+        for i in range(1, len(st.session_state.puntos)):
+            # Cálculo de tramo
+            d2d = haversine(st.session_state.puntos[i-1][0], st.session_state.puntos[i-1][1], 
+                            st.session_state.puntos[i][0], st.session_state.puntos[i][1])
+            dz = abs(datos_sensores[i-1]['Z'] - datos_sensores[i]['Z'])
+            d3d = np.sqrt(d2d**2 + dz**2)
+            dist_acum += d3d
             
-            # Nodo inicial
-            p0, z0 = st.session_state.datos_sensores[0]['P'], st.session_state.datos_sensores[0]['Z']
-            h_prev = z0 + (p0 * FACTOR_CONVERSION_PSI_MCA)
-            matriz.append({"Nodo": "N-1", "H (mca)": round(h_prev, 2), "D Acum": 0.0})
+            # Energías
+            h_act = datos_sensores[i]['Z'] + (datos_sensores[i]['P'] * FACTOR_PSI_MCA)
+            dh_real = h_prev - h_act
+            dh_teo = perdida_hazen_williams(q_lps, coef_c, dn_pulg, d3d)
+            
+            # Verificación de Anomalía
+            if dh_real > (dh_teo + 0.1): # Umbral de sensibilidad
+                x_fuga = d3d * (dh_teo / dh_real) if dh_real > 0 else 0
+                alertas.append({
+                    "id": f"{i}-{i+1}", "rel": x_fuga, "L": d3d, 
+                    "h1": h_prev, "h2": h_act, "dh_r": dh_real, "dh_t": dh_teo,
+                    "z1": datos_sensores[i-1]['Z'], "p1": datos_sensores[i-1]['P'],
+                    "z2": datos_sensores[i]['Z'], "p2": datos_sensores[i]['P']
+                })
+            
+            h_prev = h_act
+            matriz.append({"Nodo": f"N-{i+1}", "H (mca)": round(h_act, 2), "D (m)": round(dist_acum, 2)})
 
-            for i in range(1, len(st.session_state.puntos)):
-                # Distancia 3D
-                d2d = haversine(st.session_state.puntos[i-1][0], st.session_state.puntos[i-1][1], 
-                                st.session_state.puntos[i][0], st.session_state.puntos[i][1])
-                z_act = st.session_state.datos_sensores[i]['Z']
-                p_act = st.session_state.datos_sensores[i]['P']
-                d3d = np.sqrt(d2d**2 + abs(z0 - z_act)**2)
-                
-                h_act = z_act + (p_act * FACTOR_CONVERSION_PSI_MCA)
-                dh_real = h_prev - h_act
-                dh_teo = perdida_hazen_williams(q_lps, coef_c, dn_pulg, d3d)
-                
-                if (dh_real - dh_teo) > UMBRAL_FUGA_MCA:
-                    dist_fuga = d3d * (dh_teo / dh_real) if dh_real != 0 else 0
-                    alertas.append({"tramo": f"{i} -> {i+1}", "dist": dist_fuga, "dh_r": dh_real, "dh_t": dh_teo, "L": d3d, "h1": h_prev, "h2": h_act, "z1": z0, "z2": z_act, "p1": p0, "p2": p_act})
-                
-                h_prev = h_act
-                matriz.append({"Nodo": f"N-{i+1}", "H (mca)": round(h_act, 2), "D Acum": round(d3d, 2)})
-
-            # RENDER DE RESULTADOS
+        # REPORTE
+        st.divider()
+        if alertas:
             for a in alertas:
-                st.error(f"🚨 ANOMALÍA DETECTADA: Punto de interés a {a['dist']:.2f} m del Nodo {a['tramo'].split(' ')[0]}")
-                with st.expander("⚙️ Memoria de Cálculo y Diccionario de Variables"):
+                st.error(f"🚨 ANOMALÍA CONFIRMADA: Punto crítico a {a['rel']:.2f} m del Nodo {a['id'].split('-')[0]}")
+                with st.expander("⚙️ DICCIONARIO DE VARIABLES Y MEMORIA TÉCNICA"):
                     st.markdown(f"""
-                    ### Análisis de Fondo
-                    * **$H_{{prev}}$ (Energía Origen):** {a['h1']:.2f} mca (Suma de cota {a['z1']}m + presión {a['p1']} PSI).
-                    * **$H_{{act}}$ (Energía Destino):** {a['h2']:.2f} mca.
-                    * **$\Delta H_{{Real}}$:** {a['dh_r']:.2f} mca (Pérdida medida por sensores).
-                    * **$\Delta H_{{Teórico}}$:** {a['dh_t']:.2f} mca (Pérdida por fricción física esperada).
+                    ### 1. Variables de Estado (Nodo Origen)
+                    * **$Z_1$ (Cota):** {a['z1']} msnm | **$P_1$ (Presión):** {a['p1']} PSI
+                    * **$H_1$ (Energía Total):** $Z_1 + (P_1 \cdot 0.7032) = {a['h1']:.2f}$ mca
                     
-                    **Conclusión:** La disipación energética excede la fricción teórica del material. 
-                    Se proyecta la ubicación mediante la relación: $X = L \cdot (\Delta H_{{teo}} / \Delta H_{{real}})$.
+                    ### 2. Análisis de Fondo ($\Delta H$)
+                    * **$\Delta H_{{Real}}$:** {a['dh_r']:.2f} mca (Caída medida por sensores).
+                    * **$\Delta H_{{Teórico}}$:** {a['dh_t']:.2f} mca (Fricción física esperada por {dn_pulg}").
+                    
+                    ### 3. Conclusión Informática
+                    La pérdida de energía real es superior a la teórica. Se localiza el sumidero mediante:
+                    $X = L \cdot (\Delta H_{{teo}} / \Delta H_{{real}}) = {a['L']:.2f} \cdot ({a['dh_t']:.2f} / {a['dh_r']:.2f}) = \mathbf{{{a['rel']:.2f} \text{{ metros}}}}$
                     """)
-            
-            st.table(pd.DataFrame(matriz))
-
-# --- MODO LOTE (CSV) ---
-else:
-    st.info("Cargue un archivo con columnas: latitud, longitud, presion, cota.")
-    archivo = st.file_uploader("CSV de Sensores", type="csv")
-    if archivo:
-        df = pd.read_csv(archivo)
-        st.write("Datos cargados:", df.head())
-        # Aquí se repetiría la lógica de iteración sobre el DataFrame...
+        else:
+            st.success("✅ Gradiente de energía estable. No se detectan anomalías físicas.")
+        
+        st.dataframe(pd.DataFrame(matriz), use_container_width=True)
