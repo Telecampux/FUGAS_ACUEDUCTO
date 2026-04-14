@@ -1,8 +1,8 @@
 # =============================================================================
-# SISTEMA IA PARA LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES 
-# ESPECIALIZADO EN REDES TRONCALES Y MATRICES DE ACUEDUCTOS
+# IANC_H2O: SISTEMA PARA LOCALIZACIÓN DE FUGAS INVISIBLES EN ACUEDUCTOS 
+# ESPECIALIZADO EN REDES MATRIZ Y SECUNDARIA
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
-# Versión: 2.8.2 - Estable (Arquitectura Dual y Corrección de Consola)
+# Versión: 2.8.3 - Identidad Oficial (IANC_H2O)
 # =============================================================================
 
 import streamlit as st
@@ -36,7 +36,7 @@ UMBRAL_FUGA_PSI = 0.20  # Umbral físico definido (0.2 PSI)
 UMBRAL_FUGA_MCA = UMBRAL_FUGA_PSI * FACTOR_CONVERSION_PSI_MCA 
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Fugas - Matrices y Troncales", layout="wide")
+st.set_page_config(page_title="IANC_H2O - Fugas Invisibles", layout="wide")
 
 def obtener_cota_api(lat, lon):
     try:
@@ -64,7 +64,7 @@ if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {
 if 'animar_terminal' not in st.session_state: st.session_state.animar_terminal = True
 
 # --- INTERFAZ PRINCIPAL ---
-st.title("SISTEMA IA: LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES")
+st.title("IANC_H2O: LOCALIZACIÓN DE FUGAS INVISIBLES EN ACUEDUCTOS (MATRIZ Y SECUNDARIA)")
 st.subheader("Motor Determinístico: Análisis de Gradiente de Energía")
 st.caption(f"Desarrollado por {AUTOR}")
 
