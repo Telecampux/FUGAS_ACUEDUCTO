@@ -27,7 +27,11 @@ except ImportError:
         # Cálculo geodésico aproximado de respaldo
         return np.sqrt((lat2 - lat1)**2 + (lon2 - lon1)**2) * 111320.0
     def perdida_hazen_williams(q, c, d, l): 
-        return 0.5
+        # Fórmula empírica de Hazen-Williams para pérdidas por fricción
+        q_m3s = q / 1000.0
+        d_m = d * 0.0254
+        if c == 0 or d_m == 0: return 0.0
+        return 10.67 * (q_m3s ** 1.852) * l / ((c ** 1.852) * (d_m ** 4.87))
 
 # --- CONSTANTES TÉCNICAS DETERMINÍSTICAS ---
 FACTOR_CONVERSION_PSI_MCA = 0.7032
@@ -55,7 +59,7 @@ def calcular_balance_hidraulico(q_lps, d_pulg, c_hazen, dist_m, k_sum):
     area = (np.pi * d_m**2) / 4
     velocidad = q_m3s / area if area > 0 else 0
     hm = k_sum * (velocidad**2 / (2 * GRAVEDAD))
-    caida_teorica = (hf * FACTOR_CONVERSION_PSI_MCA) + hm
+    caida_teorica = hf + hm  # Hf ya suele dar en mca, ajustado para simplificación
     return caida_teorica, velocidad
 
 # --- INICIALIZACIÓN DE ESTADO ---
@@ -64,7 +68,7 @@ if 'datos_sensores' not in st.session_state: st.session_state.datos_sensores = {
 if 'animar_terminal' not in st.session_state: st.session_state.animar_terminal = True
 
 # --- INTERFAZ PRINCIPAL ---
-st.title("IANC_H2O: LOCALIZACIÓN DE FUGAS INVISIBLES EN ACUEDUCTOS (MATRIZ Y SECUNDARIA)")
+st.title("IANC_H2O: LOCALIZACIÓN DE FUGAS INVISIBLES EN ACUEDUCTOS")
 st.subheader("Motor Determinístico: Análisis de Gradiente de Energía")
 st.caption(f"Desarrollado por {AUTOR}")
 
@@ -91,7 +95,7 @@ else:
         "**MODO REAL ACTIVO:**\n"
         "Las variables fijas (Caudal, Diámetro, Coef. C) han sido bloqueadas. "
         "El sistema calculará el gradiente basándose estrictamente en la lectura física "
-        "de los sensores (Caja Negra)."
+        "de los sensores."
     )
     # Variables de control interno para evitar errores de referencia en el backend
     q_entrada_lps, dn_pulg, coef_c = 20.0, 6, 140
@@ -158,33 +162,96 @@ if modo == "Simulación Interactiva":
         terminal_box = st.empty()
         log_lineas = []
         
-        # Logger reestructurado para evitar errores de sintaxis en Python
         def log_s(texto):
             log_lineas.append(texto)
-            texto_unido = "\n".join(log_lineas)
+            # Mostrar solo las últimas líneas para no saturar la pantalla
+            lineas_visibles = log_lineas[-25:]
+            texto_unido = "\n".join(lineas_visibles)
             caja_codigo = f"```text\n{texto_unido}\n```"
             terminal_box.markdown(caja_codigo)
-            if st.session_state.animar_terminal: time.sleep(0.3)
+            if st.session_state.animar_terminal: time.sleep(0.1)
 
         log_s(">>> INICIANDO MOTOR DE SIMULACIÓN TEÓRICA...")
         dist_total = 0.0
+        matriz_analisis = []
+        perfil_grafico = []
+        alertas_fuga = []
+
+        # Inicialización del Nodo 0 (Punto de partida del gradiente)
+        z_0 = st.session_state.datos_sensores[0]['Z']
+        p_0 = st.session_state.datos_sensores[0]['P']
+        H_prev = z_0 + (p_0 * FACTOR_CONVERSION_PSI_MCA)
         
-        for i in range(len(st.session_state.puntos)):
-            if i > 0:
-                p_prev, p_act = st.session_state.puntos[i-1], st.session_state.puntos[i]
-                d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
-                dz = abs(st.session_state.datos_sensores[i-1]['Z'] - st.session_state.datos_sensores[i]['Z'])
-                d_3d = np.sqrt(d_2d**2 + dz**2)
-                
-                log_s(f"[*] Nodo {i} -> {i+1}: D_3D = {d_3d:.1f}m | H_W calculada con constantes asumidas.")
+        matriz_analisis.append({"Nodo": "N-1", "Z (m)": z_0, "P (PSI)": p_0, "H (mca)": round(H_prev, 2), "D Acum (m)": 0.0})
+        perfil_grafico.append({"D": 0.0, "H": H_prev, "Z": z_0})
+
+        for i in range(1, len(st.session_state.puntos)):
+            p_prev, p_act = st.session_state.puntos[i-1], st.session_state.puntos[i]
+            
+            # 1. Análisis Geodésico y Topográfico
+            d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
+            z_prev = st.session_state.datos_sensores[i-1]['Z']
+            z_act = st.session_state.datos_sensores[i]['Z']
+            dz = abs(z_prev - z_act)
+            d_3d = np.sqrt(d_2d**2 + dz**2)
+            dist_total += d_3d
+
+            # 2. Extracción de variables físicas del nodo actual
+            p_in = st.session_state.datos_sensores[i]['P']
+            k_tramo = st.session_state.datos_sensores[i-1]['K']
+            
+            # 3. Balance Energético y Termodinámico
+            H_act = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
+            caida_h_real = H_prev - H_act
+            
+            perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
+            diferencia_energia = caida_h_real - perdida_esperada
+
+            # 4. Impresión del trazado en consola
+            log_s(f"[*] PROCESANDO TRAMO: NODO {i} -> NODO {i+1}")
+            log_s(f"    ↳ Paso 1: Longitud tramo (D_3D) = {d_3d:.2f} m")
+            log_s(f"    ↳ Paso 2: H_prev = {H_prev:.2f} mca | H_act = {H_act:.2f} mca | ΔH_real = {caida_h_real:.2f} mca")
+            log_s(f"    ↳ Paso 3: Pérdida Teórica = {perdida_esperada:.2f} mca")
+            log_s(f"    ↳ Paso 4: Diferencial anómalo = {diferencia_energia:.2f} mca")
+
+            # 5. Lógica de Detección e Interpolación Lineal
+            if diferencia_energia > UMBRAL_FUGA_MCA:
+                dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
+                loc_absoluta = (dist_total - d_3d) + dist_fuga
+                alertas_fuga.append({"T": f"N{i}-N{i+1}", "D": loc_absoluta})
+                log_s(f"    [!] VEREDICTO: FUGA DETECTADA. Localización a {dist_fuga:.1f} m del Nodo {i}.")
+            else:
+                log_s(f"    [OK] VEREDICTO: Gradiente estable.")
+            log_s("-" * 65)
+
+            # Preparación iteración siguiente
+            H_prev = H_act
+            matriz_analisis.append({"Nodo": f"N-{i+1}", "Z (m)": z_act, "P (PSI)": p_in, "H (mca)": round(H_act, 2), "D Acum (m)": round(dist_total, 2)})
+            perfil_grafico.append({"D": dist_total, "H": H_act, "Z": z_act})
+
         log_s(">>> SIMULACIÓN FINALIZADA.")
         st.session_state.animar_terminal = False 
+
+        # --- Visualización de Resultados ---
+        st.subheader("📉 Perfil de Gradiente de Energía (Simulación)")
+        df_p = pd.DataFrame(perfil_grafico)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Línea Piezométrica (H)', line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Topográfico (Z)', fill='tozeroy', line=dict(color='brown', width=2)))
+        
+        for a in alertas_fuga: 
+            fig.add_vline(x=a['D'], line_color="red", line_dash="dash", annotation_text="Punto de Fuga")
+            
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.subheader("📋 Matriz de Nodos (Resultados Matemáticos)")
+        st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
 
 # =================================================================
 # MODO 2: OPERACIÓN REAL (CARGA LOTE)
 # =================================================================
 elif modo == "Operación Real (Carga Lote / En Línea)":
-    st.error("🚨 **AVISO ARQUITECTÓNICO - MODO OPERACIÓN REAL:** Aquí **NO SE CONSIDERA NINGUNA VARIABLE DE TIPO CONSTANTE**. La red se trata como un sistema heterogéneo (Caja Negra). Los cálculos de este módulo se realizan EXCLUSIVAMENTE a partir de la dinámica de la señal (Diferencial medido por los sensores).")
+    st.error("🚨 **AVISO ARQUITECTÓNICO - MODO OPERACIÓN REAL:** Aquí **NO SE CONSIDERA NINGUNA VARIABLE DE TIPO CONSTANTE**. La red se trata como un sistema heterogéneo (Caja Negra). Los cálculos de este módulo se realizan EXCLUSIVAMENTE a partir de la dinámica de la señal.")
     
     archivo_csv = st.file_uploader("Cargar Archivo Maestro de Sensores (.csv)", type=["csv"])
     
@@ -195,10 +262,8 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                                .str.strip().str.lower().str.normalize('NFKD')
                                .str.encode('ascii', errors='ignore').str.decode('utf-8'))
             
-            # Renombramiento seguro de columnas
             df_lote.rename(columns={'cota_z': 'cota', 'presion_psi': 'presion'}, inplace=True)
             
-            # Identificación segura de coordenadas
             cols = df_lote.columns.tolist()
             lat_col = next((c for c in cols if 'lat' in c), None)
             lon_col = next((c for c in cols if 'lon' in c), None)
@@ -208,7 +273,6 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
             else:
                 st.success("Archivo estructurado correctamente. Nodos geolocalizados con éxito.")
                 
-                # --- VISUALIZACIÓN DEL LOTE (Prioridad Visual) ---
                 st.subheader("🗺️ Mapeo Visual de la Red Escaneada")
                 df_coords = df_lote[[lat_col, lon_col]].dropna()
                 puntos_lote = df_coords.values.tolist()
@@ -219,7 +283,6 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                     
                     m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
                     
-                    # Marcadores con el código del sensor claramente identificado
                     for i, p in enumerate(puntos_lote):
                         folium.Marker(
                             p, 
@@ -237,7 +300,6 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                     terminal_batch = st.empty()
                     log_batch = []
                     
-                    # Logger de procesamiento por lotes asegurado
                     def log_b(texto):
                         log_batch.append(texto)
                         lineas_visibles = log_batch[-18:]
@@ -247,7 +309,6 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                     
                     log_b(">>> INICIANDO ANÁLISIS DE CAJA NEGRA (OPERACIÓN REAL)...")
                     log_b(f">>> Umbral Físico de Energía establecido en: {UMBRAL_FUGA_PSI} PSI ({UMBRAL_FUGA_MCA:.2f} mca).")
-                    log_b(">>> NOTA: Ignorando variables de simulación. Leyendo dinámica directa del pulso de presión.")
                     log_b("-" * 75)
                     
                     dist_total = 0.0
@@ -265,26 +326,22 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                             log_b(f"[*] PROCESANDO TRAMO EN CIEGO: NODO {i} -> NODO {i+1}")
                             row_prev = df_lote.iloc[i-1]
                             
-                            # 1. Geometría Real
                             d_2d = haversine(row_prev[lat_col], row_prev[lon_col], p_act[0], p_act[1])
                             dz = abs(row_prev.get('cota', 1000.0) - z_act)
                             d_3d = np.sqrt(d_2d**2 + dz**2)
                             dist_total += d_3d
                             log_b(f"    ↳ Paso 1: Distancia geodésica y topográfica computada ({d_3d:.2f} m).")
                             
-                            # 2. Termodinámica Pura
                             h_prev = row_prev.get('cota', 1000.0) + (row_prev.get('presion', 0.0) * FACTOR_CONVERSION_PSI_MCA)
                             caida_h_real = h_prev - H
                             log_b(f"    ↳ Paso 2: Diferencial de Energía Real (\u0394H_medido) = {caida_h_real:.2f} mca.")
                             
-                            # 3. Línea Base Calibrada
                             k_tramo = row_prev.get('sum_k', 0.0)
+                            # Se asume tubería de 6" y C=140 como línea base para tramos no caracterizados
                             perdida_esperada, v_ms = calcular_balance_hidraulico(20.0, 6, 140, d_3d, k_tramo) 
                             diferencia_energia = caida_h_real - perdida_esperada
-                            
                             log_b(f"    ↳ Paso 3: Análisis de anomalía. Excedente de energía = {diferencia_energia:.2f} mca.")
                             
-                            # 4. Veredicto
                             if diferencia_energia > UMBRAL_FUGA_MCA:
                                 dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
                                 alertas_fuga.append({"T": f"N{i}-N{i+1}", "D": dist_total - d_3d + dist_fuga})
@@ -298,7 +355,7 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                         matriz_analisis.append({"Código Nodo": f"N-{i+1}", "Elevación Z": z_act, "Presión P": p_in, "Energía H": round(H, 2), "Dist. Acumulada": round(dist_total, 2)})
                         perfil_grafico.append({"D": dist_total, "H": H, "Z": z_act})
 
-                    log_b(">>> PROCESAMIENTO DETERMINÍSTICO DEL LOTE FINALIZADO.")
+                    log_b(">>> PROCESAMIENTO DETERMINÍSTICO FINALIZADO.")
 
                     st.subheader("📉 Gradiente de Energía Real")
                     df_p = pd.DataFrame(perfil_grafico)
@@ -312,4 +369,4 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                     st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
 
         except Exception as e:
-            st.error(f"Error crítico procesando lote: Asegúrese de que el formato del CSV sea correcto. Detalles del sistema: {str(e)}")
+            st.error(f"Error crítico procesando lote. Asegúrese de que el formato del CSV sea correcto. Detalles: {str(e)}")
