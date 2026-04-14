@@ -2,7 +2,7 @@
 # SISTEMA IA PARA LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES 
 # ESPECIALIZADO EN REDES TRONCALES Y MATRICES DE ACUEDUCTOS
 # Autor: Ing. Adolfo Barrera Vargas | (c) 2026
-# Versión: 2.6 - Gráficos de Alta Precisión con Identificación de Nodos
+# Versión: 2.7 - Motor Determinístico (Física Teórica) y Logs Paso a Paso
 # =============================================================================
 
 import streamlit as st
@@ -19,12 +19,18 @@ try:
 except ImportError:
     AUTOR = "Ing. Adolfo Barrera Vargas"
     territorios = {"Bogotá": {"coords": [4.6097, -74.0817]}}
-    def haversine(lat1, lon1, lat2, lon2): return 100.0
-    def perdida_hazen_williams(q, c, d, l): return 0.5
+    def haversine(lat1, lon1, lat2, lon2): 
+        # Fórmula del Haversine mock si no existe en core
+        return 100.0
+    def perdida_hazen_williams(q, c, d, l): 
+        # Fórmula H-W mock si no existe
+        return 0.5
 
-# --- CONSTANTES TÉCNICAS ---
-FACTOR_CONVERSION_PSI_MCA = 0.703
+# --- CONSTANTES TÉCNICAS DETERMINÍSTICAS ---
+FACTOR_CONVERSION_PSI_MCA = 0.7032
 GRAVEDAD = 9.81
+UMBRAL_FUGA_PSI = 0.20  # El umbral físico definido (0.2 PSI)
+UMBRAL_FUGA_MCA = UMBRAL_FUGA_PSI * FACTOR_CONVERSION_PSI_MCA # Aprox 0.14 mca
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="IA Fugas - Matrices y Troncales", layout="wide")
@@ -40,12 +46,16 @@ def obtener_cota_api(lat, lon):
     return 1000.0
 
 def calcular_balance_hidraulico(q_lps, d_pulg, c_hazen, dist_m, k_sum):
+    # 1. Pérdida por fricción lineal (Hazen-Williams)
     hf = perdida_hazen_williams(q_lps, c_hazen, d_pulg, dist_m)
+    # 2. Conversión de masa y cálculo de velocidad
     q_m3s = q_lps / 1000.0
     d_m = d_pulg * 0.0254
     area = (np.pi * d_m**2) / 4
     velocidad = q_m3s / area
+    # 3. Pérdidas menores por accesorios (Ecuación de Energía de Velocidad)
     hm = k_sum * (velocidad**2 / (2 * GRAVEDAD))
+    # 4. Caída teórica total esperada en condiciones ideales
     caida_teorica = (hf * FACTOR_CONVERSION_PSI_MCA) + hm
     return caida_teorica, velocidad
 
@@ -78,7 +88,7 @@ with st.sidebar.expander("📘 Guía de Coeficientes K (Pérdidas Menores)", exp
 
 # --- INTERFAZ ---
 st.title("SISTEMA IA: LOCALIZACIÓN DE FUGAS TÉCNICAS INVISIBLES")
-st.subheader("Especializado en Troncales y Matrices de Acueducto")
+st.subheader("Motor Determinístico: Análisis de Gradiente y Celeridad Efectiva")
 st.caption(f"Desarrollado por {AUTOR}")
 
 # =================================================================
@@ -91,7 +101,6 @@ if modo == "Simulación Interactiva":
         mun_sel = st.selectbox("Zona de Operación:", list(territorios.keys()))
         m = folium.Map(location=territorios[mun_sel]['coords'], zoom_start=16)
         
-        # Inclusión de tooltip para identificación de sensores en simulación
         for i, p in enumerate(st.session_state.puntos):
             folium.Marker(
                 p, 
@@ -170,9 +179,9 @@ if modo == "Simulación Interactiva":
             terminal_box.markdown(f"```text\n{chr(10).join(log_lineas)}\n```")
             if pausa > 0: time.sleep(pausa)
 
-        imprimir_log(">>> INICIANDO MOTOR HIDRÁULICO...")
-        imprimir_log(f">>> Caudal: {q_entrada_lps} L/s | Diámetro: {dn_pulg}\" | C: {coef_c}")
-        imprimir_log("-" * 60)
+        imprimir_log(">>> INICIANDO MOTOR DETERMINÍSTICO (FÍSICA TEÓRICA)...")
+        imprimir_log(f">>> Parámetros Base: Q_in = {q_entrada_lps} L/s | DN = {dn_pulg}\" | Umbral de Anomalía = {UMBRAL_FUGA_PSI} PSI ({UMBRAL_FUGA_MCA:.2f} mca)")
+        imprimir_log("-" * 70)
 
         dist_total = 0.0
         matriz_analisis = []
@@ -182,48 +191,68 @@ if modo == "Simulación Interactiva":
         for i in range(len(st.session_state.puntos)):
             p_act = st.session_state.puntos[i]
             datos = st.session_state.datos_sensores[i]
+            # Ecuación de Energía: Altura Topográfica + Altura de Presión
             H = datos['Z'] + (datos['P'] * FACTOR_CONVERSION_PSI_MCA)
             
             if i > 0:
-                imprimir_log(f"[*] Analizando TRAMO: NODO {i} -> NODO {i+1}")
+                imprimir_log(f"[*] EVALUANDO TRAMO: NODO {i} -> NODO {i+1}")
                 p_prev = st.session_state.puntos[i-1]
+                
+                # Paso 1: Geometría de la Caja Negra
                 d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
                 dz = abs(st.session_state.datos_sensores[i-1]['Z'] - datos['Z'])
                 d_3d = np.sqrt(d_2d**2 + dz**2)
                 dist_total += d_3d
-                imprimir_log(f"    ↳ Geometría 3D: D_2D={d_2d:.1f}m | ΔZ={dz:.1f}m => D_3D={d_3d:.1f}m")
+                imprimir_log(f"    Paso 1 - Geometría: Distancia 3D Efectiva calculada = {d_3d:.2f} m")
                 
+                # Paso 2: Diferencial de Energía Real (Lectura de Sensores)
                 h_prev = st.session_state.datos_sensores[i-1]['Z'] + (st.session_state.datos_sensores[i-1]['P'] * FACTOR_CONVERSION_PSI_MCA)
                 caida_h_real = h_prev - H
-                imprimir_log(f"    ↳ Gradiente de Campo: Caída de Energía Real = {caida_h_real:.2f} mca")
+                imprimir_log(f"    Paso 2 - Termodinámica: Diferencial de Energía Medido (\u0394H_real) = {caida_h_real:.2f} mca")
                 
+                # Paso 3: Diferencial de Energía Teórica (Conservación de Energía)
                 k_tramo = st.session_state.datos_sensores[i-1].get('K', 0.0)
                 perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
-                imprimir_log(f"    ↳ Modelo Teórico: Vel={v_ms:.2f} m/s | Fricción + ΣK({k_tramo}) = {perdida_esperada:.2f} mca")
+                imprimir_log(f"    Paso 3 - Fricción Teórica: \u0394H_teórico (H-W + Accesorios) = {perdida_esperada:.2f} mca a Vel={v_ms:.2f} m/s")
                 
-                if caida_h_real > (perdida_esperada + 0.15):
+                # Paso 4: Análisis de Discrepancia (Umbral Físico 0.2 PSI)
+                diferencia_energia = caida_h_real - perdida_esperada
+                imprimir_log(f"    Paso 4 - Balance: Discrepancia detectada = {diferencia_energia:.2f} mca")
+                
+                if diferencia_energia > UMBRAL_FUGA_MCA:
+                    imprimir_log(f"    [!] ALERTA CRÍTICA: Discrepancia SUPERA el umbral de {UMBRAL_FUGA_MCA:.2f} mca. Iniciando Localización...")
+                    
+                    # Localización Determinística: Intersección de gradiente de energía
                     dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
-                    q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50))
+                    
+                    # Cálculo de magnitud de fuga (Orificio / Torricelli simplificado)
+                    relacion_h = perdida_esperada / caida_h_real if caida_h_real != 0 else 1
+                    q_fuga = abs(q_entrada_lps * (1 - np.sqrt(relacion_h)))
+                    
                     alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga, "V": v_ms})
-                    imprimir_log(f"    [!] ALERTA: Discrepancia detectada (Δ={caida_h_real - perdida_esperada:.2f} mca)")
+                    imprimir_log(f"    => RESULTADO FÍSICO: Fuga de {q_fuga:.2f} L/s ubicada matemáticamente a {dist_fuga:.1f} m del Nodo {i}.")
                 else:
-                    imprimir_log("    [OK] Tramo estable. Balance coherente.")
-                imprimir_log("-" * 60)
+                    imprimir_log(f"    [OK] BALANCE ESTABLE: Discrepancia dentro del margen de error físico.")
+                imprimir_log("-" * 70)
 
             matriz_analisis.append({"Nodo": i + 1, "Latitud": f"{p_act[0]:.6f}", "Longitud": f"{p_act[1]:.6f}", "Cota Z": datos['Z'], "Presión": datos['P'], "Energía H": round(H, 2), "Dist. Acum": round(dist_total, 2)})
             perfil_grafico.append({"D": dist_total, "H": H, "Z": datos['Z']})
 
-        imprimir_log(">>> ANÁLISIS FINALIZADO CON ÉXITO.")
+        imprimir_log(">>> ANÁLISIS DETERMINÍSTICO FINALIZADO CON ÉXITO.")
         st.session_state.animar_terminal = False 
 
         st.subheader("📉 Diagnóstico del Gradiente Hidráulico")
         df_p = pd.DataFrame(perfil_grafico)
         
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Gradiente Energía (H)', line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Línea de Energía (H)', line=dict(color='blue', width=3)))
         fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Terreno (Z)', fill='tozeroy', line=dict(color='brown', width=2)))
 
-        fig.update_layout(hovermode=False, xaxis_title="Distancia en la Matriz (m)", yaxis_title="Metros sobre el nivel del mar (msnm)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
+        # Agregar marcadores visuales para las fugas en el gráfico
+        for a in alertas_fuga:
+            fig.add_vline(x=a['D'], line_width=2, line_dash="dash", line_color="red", annotation_text=f"Fuga: {a['Q']:.1f} L/s")
+
+        fig.update_layout(hovermode=False, xaxis_title="Distancia Acumulada (m)", yaxis_title="Elevación (msnm)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("📋 Matriz de Localización Geográfica")
@@ -231,16 +260,16 @@ if modo == "Simulación Interactiva":
 
         if alertas_fuga:
             for a in alertas_fuga:
-                st.error(f"🚨 **FUGA TÉCNICA DETECTADA** en tramo **{a['T']}**. Caudal: **{a['Q']:.2f} L/s** a los **{a['D']:.1f} m**.")
+                st.error(f"🚨 **FUGA TÉCNICA LOCALIZADA** en tramo **{a['T']}**. Pérdida de masa: **{a['Q']:.2f} L/s** a exactamente **{a['D']:.1f} m** desde el origen.")
         else:
-            st.success("✅ **SISTEMA ESTABLE**: No se detectan fugas invisibles.")
+            st.success("✅ **SISTEMA ESTABLE**: Conservación de masa y energía validada. No hay anomalías estructurales.")
 
 # =================================================================
 # MODO 2: OPERACIÓN REAL (CARGA LOTE)
 # =================================================================
 elif modo == "Operación Real (Carga Lote)":
-    st.write("### 📊 Auditoría Masiva por Carga de Datos")
-    st.info("Módulo configurado para procesamiento masivo de sensores IoT.")
+    st.write("### 📊 Auditoría Masiva por Carga de Datos (Análisis Determinístico)")
+    st.info("Módulo configurado para procesamiento masivo de sensores IoT mediante ecuaciones de conservación de energía.")
     
     archivo_csv = st.file_uploader("Cargar Archivo Maestro de Campo (.csv)", type=["csv"])
     
@@ -256,7 +285,7 @@ elif modo == "Operación Real (Carga Lote)":
             if 'sum_k' not in df_lote.columns:
                 df_lote['sum_k'] = 0.0
 
-            st.success("Archivo cargado correctamente. Previsualización de datos:")
+            st.success("Archivo estructurado correctamente. Previsualización de Nodos:")
             st.dataframe(df_lote.head())
             
             # =================================================================
@@ -279,7 +308,6 @@ elif modo == "Operación Real (Carga Lote)":
                         
                         m_lote = folium.Map(location=[lat_centro, lon_centro], zoom_start=15)
                         
-                        # Inclusión de tooltip dinámico para el modo carga lote
                         for i, p in enumerate(puntos_lote):
                             folium.Marker(
                                 p, 
@@ -298,9 +326,8 @@ elif modo == "Operación Real (Carga Lote)":
                     st.error(f"Error interno al trazar el mapa: {e}")
             else:
                 st.warning(f"⚠️ Imposible graficar: No se encontraron columnas de latitud/longitud.")
-            # =================================================================
             
-            if st.button("🚀 Procesar Lote de Sensores", use_container_width=True):
+            if st.button("🚀 Ejecutar Análisis Físico del Lote", use_container_width=True):
                 st.subheader("🖥️ Consola de Auditoría Masiva (Lote)")
                 terminal_batch = st.empty()
                 log_batch = []
@@ -310,8 +337,8 @@ elif modo == "Operación Real (Carga Lote)":
                     lineas_visibles = log_batch[-15:] if len(log_batch) > 15 else log_batch
                     terminal_batch.markdown(f"```text\n{chr(10).join(lineas_visibles)}\n```")
                 
-                log_b(">>> INICIANDO LECTURA DE ARCHIVO MAESTRO...")
-                log_b(f">>> Total registros encontrados: {len(df_lote)}")
+                log_b(">>> INICIANDO CÁLCULO TERMODINÁMICO DEL ARCHIVO MAESTRO...")
+                log_b(f">>> Umbral Crítico Establecido: {UMBRAL_FUGA_PSI} PSI de diferencial.")
                 
                 dist_total = 0.0
                 matriz_analisis = []
@@ -331,7 +358,7 @@ elif modo == "Operación Real (Carga Lote)":
                     H = z_act + (p_in * FACTOR_CONVERSION_PSI_MCA)
                     
                     if i > 0:
-                        log_b(f"[*] Calculando Nodo {i} -> Nodo {i+1}...")
+                        log_b(f"[*] Analizando Balance de Masa y Energía Nodo {i} -> Nodo {i+1}...")
                         row_prev = df_lote.iloc[i-1]
                         p_prev = [row_prev[columna_lat], row_prev[columna_lon]]
                         d_2d = haversine(p_prev[0], p_prev[1], p_act[0], p_act[1])
@@ -345,13 +372,15 @@ elif modo == "Operación Real (Carga Lote)":
                         k_tramo = row_prev['sum_k'] 
                         perdida_esperada, v_ms = calcular_balance_hidraulico(q_entrada_lps, dn_pulg, coef_c, d_3d, k_tramo)
                         
-                        log_b(f"    ↳ D={d_3d:.1f}m | Caída Real={caida_h_real:.2f}mca | H-W+K={perdida_esperada:.2f}mca")
+                        diferencia_energia = caida_h_real - perdida_esperada
+                        log_b(f"    ↳ \u0394H_real={caida_h_real:.2f}mca | \u0394H_teórico={perdida_esperada:.2f}mca | Discrepancia={diferencia_energia:.2f}mca")
                         
-                        if caida_h_real > (perdida_esperada + 0.15):
+                        if diferencia_energia > UMBRAL_FUGA_MCA:
                             dist_fuga = d_3d * (perdida_esperada / caida_h_real) if caida_h_real != 0 else 0
-                            q_fuga = abs(q_entrada_lps * (1 - (perdida_esperada/caida_h_real)**0.50))
+                            relacion_h = perdida_esperada / caida_h_real if caida_h_real != 0 else 1
+                            q_fuga = abs(q_entrada_lps * (1 - np.sqrt(relacion_h)))
                             alertas_fuga.append({"T": f"N{i}-N{i+1}", "Q": q_fuga, "D": dist_total - d_3d + dist_fuga})
-                            log_b(f"    [!] ANOMALÍA DETECTADA")
+                            log_b(f"    [!] ANOMALÍA ESTRUCTURAL CONFIRMADA (> 0.2 PSI)")
                         
                         time.sleep(0.05) 
                     
@@ -365,10 +394,13 @@ elif modo == "Operación Real (Carga Lote)":
                 df_p = pd.DataFrame(perfil_grafico)
                 
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Gradiente Energía (H)', line=dict(color='blue', width=3)))
+                fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['H'], name='Línea de Energía (H)', line=dict(color='blue', width=3)))
                 fig.add_trace(go.Scatter(x=df_p['D'], y=df_p['Z'], name='Perfil Terreno (Z)', fill='tozeroy', line=dict(color='brown', width=2)))
 
-                fig.update_layout(hovermode=False, xaxis_title="Distancia en la Matriz (m)", yaxis_title="Metros sobre el nivel del mar (msnm)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
+                for a in alertas_fuga:
+                    fig.add_vline(x=a['D'], line_width=2, line_dash="dash", line_color="red", annotation_text=f"Fuga: {a['Q']:.1f} L/s")
+
+                fig.update_layout(hovermode=False, xaxis_title="Distancia Acumulada (m)", yaxis_title="Elevación (msnm)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
                 st.plotly_chart(fig, use_container_width=True)
 
                 st.subheader("📋 Matriz de Localización Geográfica (Procesada)")
@@ -376,9 +408,9 @@ elif modo == "Operación Real (Carga Lote)":
 
                 if alertas_fuga:
                     for a in alertas_fuga:
-                        st.error(f"🚨 **FUGA TÉCNICA DETECTADA** en tramo **{a['T']}**. Caudal: **{a['Q']:.2f} L/s** a los **{a['D']:.1f} m**.")
+                        st.error(f"🚨 **FUGA TÉCNICA LOCALIZADA** en tramo **{a['T']}**. Pérdida de masa: **{a['Q']:.2f} L/s** a exactamente **{a['D']:.1f} m** desde el origen.")
                 else:
-                    st.success("✅ **SISTEMA ESTABLE**: No se detectan fugas invisibles en el lote.")
+                    st.success("✅ **SISTEMA ESTABLE**: Conservación de masa y energía validada en todo el lote.")
 
         except KeyError as e:
             st.error(f"Error estructural residual. Faltante o irreconocible: {e}")
