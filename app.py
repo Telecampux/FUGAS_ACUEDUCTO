@@ -9,7 +9,7 @@ import math
 import os
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN LECTURA DE CARPETAS GITHUB)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN BÚSQUEDA PROFUNDA ABSOLUTA)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -89,21 +89,33 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-# --- MÓDULO DE INGESTA DE DATOS DESDE CARPETAS ---
+# --- MÓDULO DE INGESTA DE DATOS DESDE GITHUB (BÚSQUEDA PROFUNDA) ---
 if modo == "Diagnóstico Real (Campo)":
     st.subheader("📥 Ingesta de Datos desde el Repositorio")
     
-    # ESCANEO INTEGRAL (Raíz y Carpeta datos_simulacion)
-    archivos_csv = [f for f in os.listdir('.') if f.endswith('.csv')]
-    folder_datos = 'datos_simulacion'
+    # Motor de búsqueda absoluta para evadir limitaciones de la máquina virtual
+    archivos_csv = []
+    rutas_absolutas = {}
     
-    if os.path.exists(folder_datos) and os.path.isdir(folder_datos):
-        archivos_csv += [os.path.join(folder_datos, f) for f in os.listdir(folder_datos) if f.endswith('.csv')]
+    # Obtenemos la ruta real donde está ejecutándose este script (app.py)
+    directorio_base = os.path.dirname(os.path.abspath(__file__))
+    
+    for root, dirs, files in os.walk(directorio_base):
+        # Ignorar carpetas ocultas del sistema (como .git o .venv) para optimizar memoria
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for file in files:
+            if file.lower().endswith('.csv'):
+                ruta_completa = os.path.join(root, file)
+                # Creamos una ruta relativa amigable para mostrar en el menú
+                ruta_amigable = os.path.relpath(ruta_completa, directorio_base)
+                archivos_csv.append(ruta_amigable)
+                rutas_absolutas[ruta_amigable] = ruta_completa
     
     if not archivos_csv:
-        st.warning(f"No se encontraron archivos .csv. Asegúrese de que estén en la raíz o en la carpeta '{folder_datos}'.")
+        st.error("No se encontraron archivos .csv en el repositorio ni en sus subcarpetas.")
+        st.info(f"Directorio escaneado: {directorio_base}")
     else:
-        st.info(f"Se han detectado {len(archivos_csv)} archivos disponibles.")
+        st.success(f"Se han detectado {len(archivos_csv)} archivos de datos en el servidor.")
         col1, col2 = st.columns([3, 1])
         with col1:
             archivo_seleccionado = st.selectbox("Seleccione el archivo de campo:", archivos_csv)
@@ -114,14 +126,16 @@ if modo == "Diagnóstico Real (Campo)":
             
         if btn_procesar:
             try:
-                df_campo = pd.read_csv(archivo_seleccionado)
+                # Leemos usando la ruta absoluta blindada
+                ruta_para_leer = rutas_absolutas[archivo_seleccionado]
+                df_campo = pd.read_csv(ruta_para_leer)
                 
                 # NORMALIZACIÓN MINÚSCULA Y LIMPIEZA
                 cols = df_campo.columns.astype(str).str.lower().str.strip()
                 cols = [c.replace('\ufeff', '') for c in cols]
                 df_campo.columns = cols
                 
-                # Identificación de columnas
+                # Identificación de columnas (Fuerza bruta)
                 col_lat = next((c for c in df_campo.columns if 'lat' in c), None)
                 col_lon = next((c for c in df_campo.columns if 'lon' in c), None)
                 col_p = next((c for c in df_campo.columns if 'pres' in c or 'psi' in c), None)
@@ -144,7 +158,7 @@ if modo == "Diagnóstico Real (Campo)":
                 else:
                     st.error("El archivo no tiene el formato esperado (latitud, longitud, presión, cota/altitud).")
             except Exception as e:
-                st.error(f"Error crítico: {e}")
+                st.error(f"Error crítico al abrir el archivo: {e}")
 
 # --- MAPA INTERACTIVO ---
 if len(st.session_state.puntos) > 0:
