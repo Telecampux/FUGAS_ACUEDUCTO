@@ -252,8 +252,8 @@ if modo == "Simulación Interactiva":
                         * **$L$ (Longitud Real):** Es la distancia tridimensional exacta entre el punto de inicio y el de destino. Se calcula usando coordenadas satelitales (Haversine) combinadas con el desnivel del terreno. **Para este tramo es {alerta['L3D']:.2f} m.**
 
                         ### 2. Evaluando la Energía del Sistema ($H$)
-                        La variable **$H$** (Altura Piezométrica) representa la **Energía Total** que tiene el agua en un punto específico. Se obtiene sumando la altura geográfica sobre el nivel del mar ($Z$) y la presión leída por el sensor en mca ($P_{mca}$).
-                        $$ H = Z_{cota} + P_{mca} $$
+                        La variable **$H$** (Altura Piezométrica) representa la **Energía Total** que tiene el agua en un punto específico. Se obtiene sumando la altura geográfica sobre el nivel del mar ($Z$) y la presión leída por el sensor en mca ($P_{{mca}}$).
+                        $$ H = Z_{{cota}} + P_{{mca}} $$
 
                         * **$H_{{prev}}$ (Energía en el Nodo Origen):** Topografía `{alerta['Z_prev']:.2f} m` + Presión `({alerta['P_prev']:.2f} PSI \cdot 0.7032)` = **{alerta['H_prev']:.2f} mca**
                         
@@ -289,7 +289,15 @@ if modo == "Simulación Interactiva":
                 st.plotly_chart(fig, use_container_width=True)
             
             with col_tabla:
-                st.subheader("Matriz de Estados Nodal")
+                st.subheader("Matriz Analítica de Variables de Estado")
+                st.markdown("""
+                **Desglose de Variables Termodinámicas:**
+                * **Nodo:** Identificador espacial del punto de control.
+                * **Z (m):** Cota topográfica sobre el nivel del mar (Energía Potencial).
+                * **P (PSI):** Presión estática registrada por telemetría (Trabajo del fluido).
+                * **H (mca):** Altura piezométrica total en el nodo de control.
+                * **D Acum (m):** Longitud espacial tridimensional acumulada ($L_{3D}$).
+                """)
                 st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
 
 # =================================================================
@@ -404,8 +412,8 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                                 * **$L$ (Longitud Real):** Es la distancia tridimensional exacta entre el punto de inicio y el de destino. Se calcula usando coordenadas satelitales (Haversine) combinadas con el desnivel del terreno. **Para este tramo es {alerta['L3D']:.2f} m.**
 
                                 ### 2. Evaluando la Energía del Sistema ($H$)
-                                La variable **$H$** (Altura Piezométrica) representa la **Energía Total** que tiene el agua en un punto específico. Se obtiene sumando la altura geográfica sobre el nivel del mar ($Z$) y la presión leída por el sensor en mca ($P_{mca}$).
-                                $$ H = Z_{cota} + P_{mca} $$
+                                La variable **$H$** (Altura Piezométrica) representa la **Energía Total** que tiene el agua en un punto específico. Se obtiene sumando la altura geográfica sobre el nivel del mar ($Z$) y la presión leída por el sensor en mca ($P_{{mca}}$).
+                                $$ H = Z_{{cota}} + P_{{mca}} $$
 
                                 * **$H_{{prev}}$ (Energía en el Nodo Origen):** Topografía `{alerta['Z_prev']:.2f} m` + Presión `({alerta['P_prev']:.2f} PSI \cdot 0.7032)` = **{alerta['H_prev']:.2f} mca**
                                 
@@ -440,7 +448,15 @@ elif modo == "Operación Real (Carga Lote / En Línea)":
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col_tabla:
-                        st.subheader("Matriz de Nodos")
+                        st.subheader("Matriz Analítica de Variables de Estado")
+                        st.markdown("""
+                        **Desglose de Variables Termodinámicas:**
+                        * **Nodo:** Identificador espacial del punto de control.
+                        * **Z (m):** Cota topográfica sobre el nivel del mar (Energía Potencial).
+                        * **P (PSI):** Presión estática registrada por telemetría (Trabajo del fluido).
+                        * **H (mca):** Altura piezométrica total en el nodo de control.
+                        * **D Acum (m):** Longitud espacial tridimensional acumulada ($L_{3D}$).
+                        """)
                         st.dataframe(pd.DataFrame(matriz_analisis), use_container_width=True)
 
         except Exception as e:
