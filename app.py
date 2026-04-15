@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import math
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV FLEXIBLE)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -91,10 +91,9 @@ with st.sidebar:
 # --- MÓDULO DE INGESTA DE DATOS REALES (CSV) ---
 if modo == "Diagnóstico Real (Campo)":
     st.subheader("📥 Ingesta de Datos de Campo")
-    st.info("Cargue el archivo CSV con los datos consolidados del levantamiento topográfico y de presión.")
+    st.info("Cargue el archivo CSV. El sistema detectará automáticamente las columnas (latitud, longitud, presion, cota/altitud) sin importar mayúsculas.")
     
-    # Plantilla de referencia para el usuario
-    df_template = pd.DataFrame(columns=["Latitud", "Longitud", "Presion_PSI", "Cota_msnm", "K_accesorios"])
+    df_template = pd.DataFrame(columns=["latitud", "longitud", "presion", "altitud", "accesorios"])
     csv_template = df_template.to_csv(index=False).encode('utf-8')
     
     col_upload, col_download = st.columns([3, 1])
@@ -107,30 +106,45 @@ if modo == "Diagnóstico Real (Campo)":
         if archivo is not None:
             try:
                 df_campo = pd.read_csv(archivo)
-                # Verificación básica de columnas
-                columnas_req = ["Latitud", "Longitud", "Presion_PSI", "Cota_msnm"]
-                if all(col in df_campo.columns for col in columnas_req):
+                
+                # NORMALIZACIÓN FLEXIBLE DE COLUMNAS (Lectura Inteligente)
+                # Convertimos a minúsculas y quitamos espacios en blanco
+                cols_norm = [str(c).strip().lower() for c in df_campo.columns]
+                df_campo.columns = cols_norm
+                
+                # Búsqueda por alias o fragmentos de palabra
+                col_lat = next((c for c in cols_norm if c in ['latitud', 'lat', 'latitude']), None)
+                col_lon = next((c for c in cols_norm if c in ['longitud', 'lon', 'lng', 'longitude']), None)
+                col_p = next((c for c in cols_norm if 'presion' in c or 'psi' in c or 'pres' in c), None)
+                col_z = next((c for c in cols_norm if 'cota' in c or 'altitud' in c or 'elevacion' in c or 'msnm' in c), None)
+                col_k = next((c for c in cols_norm if 'accesorio' in c or 'k' in c or 'perdida' in c), None)
+                
+                if col_lat and col_lon and col_p and col_z:
                     if st.button("Procesar y Mapear Red", type="primary"):
                         st.session_state.puntos = []
                         st.session_state.datos_nodos = {}
                         
                         for idx, row in df_campo.iterrows():
-                            st.session_state.puntos.append([row['Latitud'], row['Longitud']])
-                            st.session_state[f"p_{idx}"] = float(row['Presion_PSI'])
-                            st.session_state[f"z_{idx}"] = float(row['Cota_msnm'])
-                            st.session_state[f"k_{idx}"] = float(row.get('K_accesorios', 0.0))
+                            st.session_state.puntos.append([float(row[col_lat]), float(row[col_lon])])
+                            st.session_state[f"p_{idx}"] = float(row[col_p]) if pd.notna(row[col_p]) else 0.0
+                            st.session_state[f"z_{idx}"] = float(row[col_z]) if pd.notna(row[col_z]) else 0.0
+                            st.session_state[f"k_{idx}"] = float(row[col_k]) if col_k and pd.notna(row[col_k]) else 0.0
                             st.session_state.datos_nodos[idx] = {"Z_api": "Dato Terreno (CSV)"}
                         
-                        st.success("Datos topográficos y de presión inyectados en la sesión.")
+                        st.success("Datos topográficos y de presión inyectados en la sesión correctamente.")
                         st.rerun()
                 else:
-                    st.error(f"El archivo carece de las columnas obligatorias: {', '.join(columnas_req)}")
+                    faltantes = []
+                    if not col_lat: faltantes.append("Latitud")
+                    if not col_lon: faltantes.append("Longitud")
+                    if not col_p: faltantes.append("Presión")
+                    if not col_z: faltantes.append("Cota/Altitud")
+                    st.error(f"Error de lectura: No se detectaron las columnas de {', '.join(faltantes)}. Revise los encabezados de su CSV.")
             except Exception as e:
                 st.error(f"Error al leer el archivo: {e}")
 
 # --- MAPA INTERACTIVO ---
 if len(st.session_state.puntos) > 0:
-    # Centrar mapa en el primer nodo si hay datos, si no, en el municipio
     centro = st.session_state.puntos[0]
 else:
     centro = centro_mapa
@@ -143,7 +157,7 @@ if len(st.session_state.puntos) > 1:
 
 mapa = st_folium(m, width=None, height=450)
 
-# Lógica de Captura Manual (Para Simulación o adición manual)
+# Lógica de Captura Manual
 if mapa and mapa.get("last_clicked"):
     lat, lon = mapa["last_clicked"]["lat"], mapa["last_clicked"]["lng"]
     if [lat, lon] not in st.session_state.puntos:
@@ -183,7 +197,6 @@ for i in range(len(st.session_state.puntos)):
 
 # --- EJECUCIÓN DEL MOTOR HIDRÁULICO ---
 if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
-    # Validación
     if modo == "Diagnóstico Real (Campo)":
         cotas_cero = [i+1 for i in range(len(st.session_state.puntos)) if st.session_state[f"z_{i}"] == 0.0]
         if cotas_cero:
@@ -203,7 +216,7 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
         # Nodo Inicial (0)
         z0 = st.session_state[f"z_0"]
         p0 = st.session_state[f"p_0"]
-        h0 = z0 + (p0 * 0.7032) # Ecuación de energía corregida
+        h0 = z0 + (p0 * 0.7032) 
         perfil.append({"Dist": 0.0, "Energia": h0, "Terreno": z0})
         
         for i in range(1, len(st.session_state.puntos)):
