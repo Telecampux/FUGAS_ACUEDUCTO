@@ -9,7 +9,8 @@ import math
 import os
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN BÚSQUEDA PROFUNDA ABSOLUTA)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS 
+# VERSIÓN: BÚSQUEDA PROFUNDA + MEMORIA DE CÁLCULO AUDITABLE
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -93,29 +94,22 @@ with st.sidebar:
 if modo == "Diagnóstico Real (Campo)":
     st.subheader("📥 Ingesta de Datos desde el Repositorio")
     
-    # Motor de búsqueda absoluta para evadir limitaciones de la máquina virtual
     archivos_csv = []
     rutas_absolutas = {}
-    
-    # Obtenemos la ruta real donde está ejecutándose este script (app.py)
     directorio_base = os.path.dirname(os.path.abspath(__file__))
     
     for root, dirs, files in os.walk(directorio_base):
-        # Ignorar carpetas ocultas del sistema (como .git o .venv) para optimizar memoria
         dirs[:] = [d for d in dirs if not d.startswith('.')]
         for file in files:
             if file.lower().endswith('.csv'):
                 ruta_completa = os.path.join(root, file)
-                # Creamos una ruta relativa amigable para mostrar en el menú
                 ruta_amigable = os.path.relpath(ruta_completa, directorio_base)
                 archivos_csv.append(ruta_amigable)
                 rutas_absolutas[ruta_amigable] = ruta_completa
     
     if not archivos_csv:
         st.error("No se encontraron archivos .csv en el repositorio ni en sus subcarpetas.")
-        st.info(f"Directorio escaneado: {directorio_base}")
     else:
-        st.success(f"Se han detectado {len(archivos_csv)} archivos de datos en el servidor.")
         col1, col2 = st.columns([3, 1])
         with col1:
             archivo_seleccionado = st.selectbox("Seleccione el archivo de campo:", archivos_csv)
@@ -126,16 +120,13 @@ if modo == "Diagnóstico Real (Campo)":
             
         if btn_procesar:
             try:
-                # Leemos usando la ruta absoluta blindada
                 ruta_para_leer = rutas_absolutas[archivo_seleccionado]
                 df_campo = pd.read_csv(ruta_para_leer)
                 
-                # NORMALIZACIÓN MINÚSCULA Y LIMPIEZA
                 cols = df_campo.columns.astype(str).str.lower().str.strip()
                 cols = [c.replace('\ufeff', '') for c in cols]
                 df_campo.columns = cols
                 
-                # Identificación de columnas (Fuerza bruta)
                 col_lat = next((c for c in df_campo.columns if 'lat' in c), None)
                 col_lon = next((c for c in df_campo.columns if 'lon' in c), None)
                 col_p = next((c for c in df_campo.columns if 'pres' in c or 'psi' in c), None)
@@ -208,7 +199,7 @@ for i in range(len(st.session_state.puntos)):
         if i < len(st.session_state.puntos) - 1:
             st.session_state[f"k_{i}"] = st.number_input("ΣK accesorios", value=st.session_state.get(f"k_{i}", 0.0), key=f"input_k_{i}", step=0.1)
 
-# --- ANÁLISIS ---
+# --- ANÁLISIS Y MEMORIA DE CÁLCULO ---
 if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
     if len(st.session_state.puntos) < 2:
         st.error("Se requieren al menos 2 nodos para realizar el cálculo diferencial.")
@@ -220,11 +211,14 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
         area = math.pi * ((d * 0.0254)**2) / 4.0
         v = (q / 1000.0) / area if area > 0 else 0
         
-        # Inicio
         z0 = st.session_state[f"z_0"]
         p0 = st.session_state[f"p_0"]
         h0 = z0 + (p0 * 0.7032) 
         perfil.append({"Dist": 0.0, "Energia": h0, "Terreno": z0})
+        
+        st.divider()
+        st.subheader("Memoria de Cálculo Transparente")
+        st.info("Despliegue cada tramo para auditar las variables, la ecuación de energía y las pérdidas matemáticas de fondo.")
         
         for i in range(1, len(st.session_state.puntos)):
             p1, p2 = st.session_state.puntos[i-1], st.session_state.puntos[i]
@@ -244,24 +238,53 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
             hf = perdida_hazen_williams(q, c_hw, d, d_real)
             hm = k_loc * (v**2) / (2 * 9.81)
             dh_teo = hf + hm
+            diferencia = dh_real - dh_teo
             
             perfil.append({"Dist": dist_acumulada, "Energia": h_real_2, "Terreno": z2})
             
-            if (dh_real - dh_teo) > 0.14:
+            if diferencia > 0.14:
                 x_f = d_real * (dh_teo / dh_real) if dh_real != 0 else 0
-                fugas.append({"tramo": f"{i} → {i+1}", "pos": x_f, "perda": dh_real - dh_teo})
+                fugas.append({"tramo": f"{i} → {i+1}", "pos": x_f, "perda": diferencia})
 
-        # RESULTADOS
+            # EXPOSICIÓN DE LA MEMORIA DE CÁLCULO
+            with st.expander(f"🔍 Auditoría Tramo: Nodo {i} → Nodo {i+1}"):
+                st.markdown("**1. Topografía y Longitud**")
+                st.markdown(f"- Distancia Plana (Haversine): `{dist_tramo:.2f} m`")
+                st.markdown(f"- Cota Inicial ($Z_1$): `{z1} m` | Cota Final ($Z_2$): `{z2} m`")
+                st.latex(r"L_{real} = \sqrt{D_{plana}^2 + (Z_2 - Z_1)^2}")
+                st.markdown(f"- Longitud Inclinada ($L_{{real}}$): **`{d_real:.2f} m`**")
+                
+                st.markdown("**2. Ecuación de Energía Real (Mediciones de Campo)**")
+                st.latex(r"H = Z + (P_{psi} \times 0.7032)")
+                st.markdown(f"- Energía Total Nodo {i} ($H_1$): `{z1} + ({pres1} \times 0.7032)` = **`{h_real_1:.2f} mca`**")
+                st.markdown(f"- Energía Total Nodo {i+1} ($H_2$): `{z2} + ({pres2} \times 0.7032)` = **`{h_real_2:.2f} mca`**")
+                st.markdown(f"- Diferencial Medido ($\Delta H_{{real}} = H_1 - H_2$): **`{dh_real:.2f} mca`**")
+                
+                st.markdown("**3. Gradiente Teórico (Modelo Matemático)**")
+                st.markdown(f"- Velocidad del Flujo ($V$): `{v:.2f} m/s`")
+                st.markdown(f"- Pérdidas Menores ($h_m = K \cdot \frac{{v^2}}{{2g}}$): `{k_loc} \cdot \frac{{{v:.2f}^2}}{{19.62}}` = `{hm:.2f} mca`")
+                st.markdown(f"- Pérdida por Fricción Hazen-Williams ($h_f$): `{hf:.2f} mca`")
+                st.markdown(f"- Pérdida Teórica Esperada ($\Delta H_{{teo}} = h_f + h_m$): **`{dh_teo:.2f} mca`**")
+                
+                st.markdown("**4. Conclusión Termodinámica**")
+                st.markdown(f"Diferencia Excedente ($\Delta H_{{real}} - \Delta H_{{teo}}$): **`{diferencia:.2f} mca`**")
+                if diferencia > 0.14:
+                    st.error("⚠️ El exceso de pérdida supera el umbral de 0.14 mca (0.2 PSI). Fuga termodinámica detectada.")
+                else:
+                    st.success("✅ El comportamiento termodinámico concuerda con las leyes de fricción para este tramo.")
+
+        # --- RESULTADOS Y GRÁFICA ---
         st.divider()
+        st.subheader("Resumen Diagnóstico")
         if fugas:
             for f in fugas: 
-                st.warning(f"⚠️ Posible fuga en Tramo {f['tramo']} a {f['pos']:.2f}m. (Diferencia: {f['perda']:.2f} mca)")
+                st.warning(f"⚠️ Alerta Crítica en Tramo {f['tramo']}. Búsqueda focalizada recomendada a {f['pos']:.2f}m del Nodo de origen. (Pérdida inexplicable: {f['perda']:.2f} mca)")
         else:
-            st.success("Cálculo finalizado: La red opera según los parámetros teóricos.")
+            st.success("Sistema estabilizado. No se detectan gradientes anómalos.")
             
         df = pd.DataFrame(perfil)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía", line=dict(color='blue', width=3)))
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil Terreno", fill='tozeroy', line=dict(color='brown')))
-        fig.update_layout(title="Perfil Hidráulico Georreferenciado", xaxis_title="Distancia (m)", yaxis_title="msnm / mca")
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía (H)", line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil Topográfico (Z)", fill='tozeroy', line=dict(color='brown')))
+        fig.update_layout(title="Perfil Espacial Hidráulico", xaxis_title="Longitud Acumulada (m)", yaxis_title="msnm / mca")
         st.plotly_chart(fig, use_container_width=True)
