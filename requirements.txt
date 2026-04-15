@@ -1,7 +1,7 @@
-streamlit
-folium
-streamlit-folium
-pandas
-numpy
-requests
-plotly
+streamlit==1.33.0
+folium==0.16.0
+streamlit-folium==0.18.0
+pandas==2.2.2
+numpy==1.26.4
+requests==2.31.0
+plotly==5.20.0
