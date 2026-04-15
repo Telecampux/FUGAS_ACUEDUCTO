@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import math
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN INTEGRAL)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN RESTAURADA Y CORREGIDA)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -42,13 +42,13 @@ if "puntos" not in st.session_state:
 if "datos_api" not in st.session_state:
     st.session_state.datos_api = {}
 
-# --- PANEL DE CONFIGURACIÓN DE ESCENARIO ---
+# --- PANEL DE CONFIGURACIÓN ---
 st.title("IANC_H2O - Diagnóstico Hidráulico")
 
 with st.sidebar:
     st.header("Configuración de Escenario")
     
-    # Selector de Municipio para centrar el mapa
+    # RESTAURACIÓN DE MUNICIPIOS ESPECÍFICOS
     municipios = {
         "Bogotá": [4.6097, -74.0817],
         "Medellín": [6.2442, -75.5812],
@@ -59,7 +59,6 @@ with st.sidebar:
     muni_sel = st.selectbox("Seleccione el Municipio", list(municipios.keys()))
     centro_mapa = municipios[muni_sel]
 
-    # Modo de Operación
     modo = st.radio("Modo de Operación", ["Simulación de Red", "Diagnóstico Real (Campo)"])
     
     st.divider()
@@ -69,9 +68,7 @@ with st.sidebar:
     c_hw = st.slider("Coeficiente C (Hazen-Williams)", 100, 150, 140)
 
 # --- MAPA INTERACTIVO ---
-st.subheader(f"Mapa de Red - {modo}")
 m = folium.Map(location=centro_mapa, zoom_start=15)
-
 for i, p in enumerate(st.session_state.puntos):
     folium.Marker(p, tooltip=f"Nodo {i+1}").add_to(m)
 if len(st.session_state.puntos) > 1:
@@ -87,30 +84,27 @@ if mapa and mapa.get("last_clicked"):
         idx = len(st.session_state.puntos) - 1
         z_ref = obtener_cota_referencia(lat, lon)
         
-        # Inicialización de inputs
+        # Corrección: Inicializamos la cota con el valor de referencia de la API
+        # pero permitimos su edición inmediata.
         st.session_state[f"p_{idx}"] = 0.0
         st.session_state[f"z_{idx}"] = float(z_ref if z_ref else 0.0)
         st.session_state[f"k_{idx}"] = 0.0
         st.session_state.datos_api[idx] = {"Z_api": z_ref}
         st.rerun()
 
-# --- INPUTS DE SENSORES ---
+# --- INPUTS DE SENSORES (CORRECCIÓN DE COTA) ---
 st.subheader("Configuración de Nodos")
-if not st.session_state.puntos:
-    st.info("Haga clic en el mapa para agregar nodos de presión.")
-
 for i in range(len(st.session_state.puntos)):
     with st.expander(f"📍 Nodo {i+1}", expanded=True):
         c1, c2 = st.columns(2)
         c1.number_input("Presión (PSI)", key=f"p_{i}", step=0.5)
         
-        # En modo diagnóstico real, se enfatiza la edición manual
-        ayuda_z = "Ingrese la cota topográfica de precisión." if modo == "Diagnóstico Real (Campo)" else "Cota base del modelo."
-        c2.number_input("Cota REAL (msnm)", key=f"z_{i}", format="%.2f", step=0.1, help=ayuda_z)
+        # El cálculo ahora se alimenta directamente de este campo editado por el usuario
+        c2.number_input("Cota REAL (msnm)", key=f"z_{i}", format="%.2f", step=0.1)
         
         z_api = st.session_state.datos_api.get(i, {}).get("Z_api")
         if z_api is not None:
-            st.caption(f"Referencia API: {z_api} msnm")
+            st.caption(f"Referencia API (Sujeta a error satelital): {z_api} msnm")
         
         if i < len(st.session_state.puntos) - 1:
             st.number_input("ΣK accesorios (pérdidas menores)", key=f"k_{i}", step=0.1)
@@ -124,11 +118,10 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
         dist_acumulada = 0.0
         fugas = []
         
-        # Velocidad del flujo
         area = math.pi * ((d * 0.0254)**2) / 4.0
         v = (q / 1000.0) / area if area > 0 else 0
         
-        # Nodo 0
+        # Nodo Inicial (0)
         z0 = st.session_state[f"z_0"]
         h0 = z0 + (st.session_state[f"p_0"] * 0.7032)
         perfil.append({"Dist": 0.0, "Energia": h0, "Terreno": z0})
@@ -137,6 +130,7 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
             p1, p2 = st.session_state.puntos[i-1], st.session_state.puntos[i]
             dist_tramo = haversine_esferico(p1[0], p1[1], p2[0], p2[1])
             
+            # PRIORIDAD DE COTA REAL SOBRE API
             z1, z2 = st.session_state[f"z_{i-1}"], st.session_state[f"z_{i}"]
             pres1, pres2 = st.session_state[f"p_{i-1}"], st.session_state[f"p_{i}"]
             k_loc = st.session_state[f"k_{i-1}"]
@@ -144,39 +138,31 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
             d_real = math.sqrt(dist_tramo**2 + (z2 - z1)**2)
             dist_acumulada += d_real
             
-            # Energía Real (Campo)
+            # Energía Real
             h_real_1 = z1 + (pres1 * 0.7032)
             h_real_2 = z2 + (pres2 * 0.7032)
             dh_real = h_real_1 - h_real_2
             
-            # Energía Teórica (Física)
+            # Energía Teórica
             hf = perdida_hazen_williams(q, c_hw, d, d_real)
             hm = k_loc * (v**2) / (2 * 9.81)
             dh_teo = hf + hm
             
             perfil.append({"Dist": dist_acumulada, "Energia": h_real_2, "Terreno": z2})
             
-            # Umbral de fuga: 0.2 PSI -> ~0.14 MCA
             if (dh_real - dh_teo) > 0.14:
                 x_f = d_real * (dh_teo / dh_real) if dh_real != 0 else 0
-                fugas.append({
-                    "tramo": f"{i} → {i+1}",
-                    "pos": x_f,
-                    "perda": dh_real - dh_teo
-                })
+                fugas.append({"tramo": f"{i} → {i+1}", "pos": x_f, "perda": dh_real - dh_teo})
 
-        # --- RESULTADOS ---
+        # RESULTADOS Y GRÁFICA
         st.divider()
         if fugas:
-            for f in fugas:
-                st.warning(f"⚠️ Anomalía detectada en Tramo {f['tramo']}: Localización estimada a {f['pos']:.2f}m del inicio. (Exceso de pérdida: {f['perda']:.2f} mca)")
+            for f in fugas: st.warning(f"⚠️ Anomalía en Tramo {f['tramo']} a {f['pos']:.2f}m.")
         else:
-            st.success("Operación óptima: No se detectaron anomalías de presión significativas.")
+            st.success("Integridad de red confirmada.")
             
-        # GRÁFICA DE PERFIL
         df = pd.DataFrame(perfil)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía (H)", line=dict(color='blue', width=3)))
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil del Terreno (Z)", fill='tozeroy', line=dict(color='brown')))
-        fig.update_layout(title="Perfil Hidráulico de la Red", xaxis_title="Distancia (m)", yaxis_title="msnm / mca")
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Energía (H)", line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Terreno (Z)", fill='tozeroy', line=dict(color='brown')))
         st.plotly_chart(fig, use_container_width=True)
