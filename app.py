@@ -9,7 +9,7 @@ import math
 import os
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN LECTURA DIRECTA GITHUB)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN LECTURA DE CARPETAS GITHUB)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -89,36 +89,39 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-# --- MÓDULO DE INGESTA DE DATOS REALES (CSV DESDE GITHUB) ---
+# --- MÓDULO DE INGESTA DE DATOS DESDE CARPETAS ---
 if modo == "Diagnóstico Real (Campo)":
     st.subheader("📥 Ingesta de Datos desde el Repositorio")
-    st.info("El sistema está escaneando los archivos subidos a su repositorio en GitHub.")
     
-    # Escanear el directorio raíz en busca de archivos CSV
+    # ESCANEO INTEGRAL (Raíz y Carpeta datos_simulacion)
     archivos_csv = [f for f in os.listdir('.') if f.endswith('.csv')]
+    folder_datos = 'datos_simulacion'
+    
+    if os.path.exists(folder_datos) and os.path.isdir(folder_datos):
+        archivos_csv += [os.path.join(folder_datos, f) for f in os.listdir(folder_datos) if f.endswith('.csv')]
     
     if not archivos_csv:
-        st.warning("No se encontraron archivos .csv en el repositorio. Por favor, suba su archivo de datos a GitHub.")
+        st.warning(f"No se encontraron archivos .csv. Asegúrese de que estén en la raíz o en la carpeta '{folder_datos}'.")
     else:
+        st.info(f"Se han detectado {len(archivos_csv)} archivos disponibles.")
         col1, col2 = st.columns([3, 1])
         with col1:
-            archivo_seleccionado = st.selectbox("Seleccione el archivo de topografía:", archivos_csv)
+            archivo_seleccionado = st.selectbox("Seleccione el archivo de campo:", archivos_csv)
         with col2:
-            st.write("") # Espaciador
             st.write("")
-            btn_procesar = st.button("Procesar Archivo", type="primary", use_container_width=True)
+            st.write("")
+            btn_procesar = st.button("Cargar Datos", type="primary", use_container_width=True)
             
         if btn_procesar:
             try:
-                # Leer directamente desde el disco de GitHub
                 df_campo = pd.read_csv(archivo_seleccionado)
                 
-                # FUERZA BRUTA: Limpieza estricta de encabezados
+                # NORMALIZACIÓN MINÚSCULA Y LIMPIEZA
                 cols = df_campo.columns.astype(str).str.lower().str.strip()
                 cols = [c.replace('\ufeff', '') for c in cols]
                 df_campo.columns = cols
                 
-                # Búsqueda por fragmentos simples
+                # Identificación de columnas
                 col_lat = next((c for c in df_campo.columns if 'lat' in c), None)
                 col_lon = next((c for c in df_campo.columns if 'lon' in c), None)
                 col_p = next((c for c in df_campo.columns if 'pres' in c or 'psi' in c), None)
@@ -134,22 +137,14 @@ if modo == "Diagnóstico Real (Campo)":
                         st.session_state[f"p_{idx}"] = float(row[col_p]) if pd.notna(row[col_p]) else 0.0
                         st.session_state[f"z_{idx}"] = float(row[col_z]) if pd.notna(row[col_z]) else 0.0
                         st.session_state[f"k_{idx}"] = float(row[col_k]) if col_k and pd.notna(row[col_k]) else 0.0
-                        st.session_state.datos_nodos[idx] = {"Z_api": f"Dato de: {archivo_seleccionado}"}
+                        st.session_state.datos_nodos[idx] = {"Z_api": f"Fuente: {archivo_seleccionado}"}
                     
-                    st.success(f"Archivo '{archivo_seleccionado}' inyectado en la sesión correctamente.")
+                    st.success(f"Configuración de red cargada desde '{archivo_seleccionado}'.")
                     st.rerun()
                 else:
-                    faltantes = []
-                    if not col_lat: faltantes.append("Latitud (lat)")
-                    if not col_lon: faltantes.append("Longitud (lon)")
-                    if not col_p: faltantes.append("Presión (pres / psi)")
-                    if not col_z: faltantes.append("Cota/Altitud (cota / alt / msnm)")
-                    
-                    st.error("Error de lectura: No se detectaron las columnas requeridas.")
-                    st.warning(f"Faltan detectar: {', '.join(faltantes)}")
-                    st.info(f"Encabezados leídos en el archivo: {', '.join(df_campo.columns)}")
+                    st.error("El archivo no tiene el formato esperado (latitud, longitud, presión, cota/altitud).")
             except Exception as e:
-                st.error(f"Error crítico al leer el archivo {archivo_seleccionado}: {e}")
+                st.error(f"Error crítico: {e}")
 
 # --- MAPA INTERACTIVO ---
 if len(st.session_state.puntos) > 0:
@@ -184,35 +179,25 @@ if mapa and mapa.get("last_clicked"):
         st.session_state[f"k_{idx}"] = 0.0
         st.rerun()
 
-# --- INPUTS DE SENSORES ---
+# --- PANEL DE NODOS ---
 st.subheader("Configuración de Nodos")
 
-if not st.session_state.puntos:
-    st.info("Haga clic en el mapa para iniciar una simulación, o seleccione un archivo CSV en modo 'Diagnóstico Real'.")
-
 for i in range(len(st.session_state.puntos)):
-    with st.expander(f"📍 Nodo {i+1}", expanded=True):
+    with st.expander(f"📍 Nodo {i+1}", expanded=(i == len(st.session_state.puntos)-1)):
         c1, c2 = st.columns(2)
-        
         st.session_state[f"p_{i}"] = c1.number_input("Presión (PSI)", value=st.session_state.get(f"p_{i}", 0.0), key=f"input_p_{i}", step=0.5)
-        st.session_state[f"z_{i}"] = c2.number_input("Cota REAL (msnm) *", value=st.session_state.get(f"z_{i}", 0.0), key=f"input_z_{i}", format="%.2f", step=0.1)
+        st.session_state[f"z_{i}"] = c2.number_input("Cota REAL (msnm)", value=st.session_state.get(f"z_{i}", 0.0), key=f"input_z_{i}", format="%.2f", step=0.1)
         
         z_api = st.session_state.datos_nodos.get(i, {}).get("Z_api")
-        st.caption(f"Origen del dato: {z_api}")
+        st.caption(f"Origen: {z_api}")
         
         if i < len(st.session_state.puntos) - 1:
-            st.session_state[f"k_{i}"] = st.number_input("ΣK accesorios (pérdidas menores)", value=st.session_state.get(f"k_{i}", 0.0), key=f"input_k_{i}", step=0.1)
+            st.session_state[f"k_{i}"] = st.number_input("ΣK accesorios", value=st.session_state.get(f"k_{i}", 0.0), key=f"input_k_{i}", step=0.1)
 
-# --- EJECUCIÓN DEL MOTOR HIDRÁULICO ---
+# --- ANÁLISIS ---
 if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
-    if modo == "Diagnóstico Real (Campo)":
-        cotas_cero = [i+1 for i in range(len(st.session_state.puntos)) if st.session_state[f"z_{i}"] == 0.0]
-        if cotas_cero:
-             st.error(f"Error: Altimetría ausente en los Nodos: {', '.join(map(str, cotas_cero))}. Corrija en el panel o en su CSV.")
-             st.stop()
-
     if len(st.session_state.puntos) < 2:
-        st.error("Se requieren al menos 2 nodos para calcular el gradiente de energía.")
+        st.error("Se requieren al menos 2 nodos para realizar el cálculo diferencial.")
     else:
         perfil = []
         dist_acumulada = 0.0
@@ -221,7 +206,7 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
         area = math.pi * ((d * 0.0254)**2) / 4.0
         v = (q / 1000.0) / area if area > 0 else 0
         
-        # Nodo Inicial (0)
+        # Inicio
         z0 = st.session_state[f"z_0"]
         p0 = st.session_state[f"p_0"]
         h0 = z0 + (p0 * 0.7032) 
@@ -252,17 +237,17 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
                 x_f = d_real * (dh_teo / dh_real) if dh_real != 0 else 0
                 fugas.append({"tramo": f"{i} → {i+1}", "pos": x_f, "perda": dh_real - dh_teo})
 
-        # --- RESULTADOS Y VISUALIZACIÓN ---
+        # RESULTADOS
         st.divider()
         if fugas:
             for f in fugas: 
-                st.warning(f"⚠️ Anomalía en Tramo {f['tramo']} a {f['pos']:.2f}m. (Diferencial anómalo: {f['perda']:.2f} mca)")
+                st.warning(f"⚠️ Posible fuga en Tramo {f['tramo']} a {f['pos']:.2f}m. (Diferencia: {f['perda']:.2f} mca)")
         else:
-            st.success("Integridad de red confirmada.")
+            st.success("Cálculo finalizado: La red opera según los parámetros teóricos.")
             
         df = pd.DataFrame(perfil)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía Total (H)", line=dict(color='blue', width=3)))
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil Terreno (Z)", fill='tozeroy', line=dict(color='brown')))
-        fig.update_layout(title="Perfil Hidráulico de la Red", xaxis_title="Distancia (m)", yaxis_title="msnm / mca")
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía", line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil Terreno", fill='tozeroy', line=dict(color='brown')))
+        fig.update_layout(title="Perfil Hidráulico Georreferenciado", xaxis_title="Distancia (m)", yaxis_title="msnm / mca")
         st.plotly_chart(fig, use_container_width=True)
