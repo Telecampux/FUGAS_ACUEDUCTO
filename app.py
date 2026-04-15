@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import math
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -57,23 +57,19 @@ with st.sidebar:
     muni_sel = st.selectbox("Seleccione el Municipio", list(municipios.keys()))
     centro_mapa = municipios[muni_sel]
 
-    # Guardamos el modo en session_state para detectar cambios
     if "modo_operacion" not in st.session_state:
         st.session_state.modo_operacion = "Simulación de Red"
 
-    nuevo_modo = st.radio("Modo de Operación", ["Simulación de Red", "Diagnóstico Real (Campo)"], index=["Simulación de Red", "Diagnóstico Real (Campo)"].index(st.session_state.modo_operacion))
+    nuevo_modo = st.radio(
+        "Modo de Operación", 
+        ["Simulación de Red", "Diagnóstico Real (Campo)"], 
+        index=["Simulación de Red", "Diagnóstico Real (Campo)"].index(st.session_state.modo_operacion)
+    )
     
-    # Si el usuario cambia de modo, limpiamos las cotas para evitar conflictos
     if nuevo_modo != st.session_state.modo_operacion:
         st.session_state.modo_operacion = nuevo_modo
-        for i in range(len(st.session_state.puntos)):
-             if nuevo_modo == "Diagnóstico Real (Campo)":
-                 # Al pasar a Real, forzamos a 0.0 para que el usuario deba ingresarlo
-                 st.session_state[f"z_{i}"] = 0.0 
-             else:
-                 # Al pasar a Simulación, intentamos recuperar la de la API si existe
-                 z_api = st.session_state.datos_nodos.get(i, {}).get("Z_api")
-                 st.session_state[f"z_{i}"] = float(z_api if z_api is not None else 0.0)
+        st.session_state.puntos = []
+        st.session_state.datos_nodos = {}
         st.rerun()
 
     modo = st.session_state.modo_operacion
@@ -92,8 +88,54 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
+# --- MÓDULO DE INGESTA DE DATOS REALES (CSV) ---
+if modo == "Diagnóstico Real (Campo)":
+    st.subheader("📥 Ingesta de Datos de Campo")
+    st.info("Cargue el archivo CSV con los datos consolidados del levantamiento topográfico y de presión.")
+    
+    # Plantilla de referencia para el usuario
+    df_template = pd.DataFrame(columns=["Latitud", "Longitud", "Presion_PSI", "Cota_msnm", "K_accesorios"])
+    csv_template = df_template.to_csv(index=False).encode('utf-8')
+    
+    col_upload, col_download = st.columns([3, 1])
+    with col_download:
+        st.download_button("Descargar Plantilla CSV", data=csv_template, file_name="plantilla_ianc_h2o.csv", mime="text/csv", use_container_width=True)
+    
+    with col_upload:
+        archivo = st.file_uploader("Subir archivo (.csv)", type=['csv'], label_visibility="collapsed")
+        
+        if archivo is not None:
+            try:
+                df_campo = pd.read_csv(archivo)
+                # Verificación básica de columnas
+                columnas_req = ["Latitud", "Longitud", "Presion_PSI", "Cota_msnm"]
+                if all(col in df_campo.columns for col in columnas_req):
+                    if st.button("Procesar y Mapear Red", type="primary"):
+                        st.session_state.puntos = []
+                        st.session_state.datos_nodos = {}
+                        
+                        for idx, row in df_campo.iterrows():
+                            st.session_state.puntos.append([row['Latitud'], row['Longitud']])
+                            st.session_state[f"p_{idx}"] = float(row['Presion_PSI'])
+                            st.session_state[f"z_{idx}"] = float(row['Cota_msnm'])
+                            st.session_state[f"k_{idx}"] = float(row.get('K_accesorios', 0.0))
+                            st.session_state.datos_nodos[idx] = {"Z_api": "Dato Terreno (CSV)"}
+                        
+                        st.success("Datos topográficos y de presión inyectados en la sesión.")
+                        st.rerun()
+                else:
+                    st.error(f"El archivo carece de las columnas obligatorias: {', '.join(columnas_req)}")
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {e}")
+
 # --- MAPA INTERACTIVO ---
-m = folium.Map(location=centro_mapa, zoom_start=14)
+if len(st.session_state.puntos) > 0:
+    # Centrar mapa en el primer nodo si hay datos, si no, en el municipio
+    centro = st.session_state.puntos[0]
+else:
+    centro = centro_mapa
+
+m = folium.Map(location=centro, zoom_start=15)
 for i, p in enumerate(st.session_state.puntos):
     folium.Marker(p, tooltip=f"Nodo {i+1}").add_to(m)
 if len(st.session_state.puntos) > 1:
@@ -101,70 +143,51 @@ if len(st.session_state.puntos) > 1:
 
 mapa = st_folium(m, width=None, height=450)
 
-# Lógica de Captura
+# Lógica de Captura Manual (Para Simulación o adición manual)
 if mapa and mapa.get("last_clicked"):
     lat, lon = mapa["last_clicked"]["lat"], mapa["last_clicked"]["lng"]
     if [lat, lon] not in st.session_state.puntos:
         st.session_state.puntos.append([lat, lon])
         idx = len(st.session_state.puntos) - 1
         
-        # Siempre consultamos la API por debajo para guardarla como referencia
-        z_ref = obtener_cota_referencia(lat, lon)
-        st.session_state.datos_nodos[idx] = {"Z_api": z_ref}
-        
-        st.session_state[f"p_{idx}"] = 0.0
-        st.session_state[f"k_{idx}"] = 0.0
-        
-        # Asignación de cota inicial según el modo
         if modo == "Simulación de Red":
+            z_ref = obtener_cota_referencia(lat, lon)
+            st.session_state.datos_nodos[idx] = {"Z_api": z_ref}
             st.session_state[f"z_{idx}"] = float(z_ref if z_ref else 0.0)
         else:
-            # En modo real, forzamos a 0.0 obligando al usuario a digitar
+            st.session_state.datos_nodos[idx] = {"Z_api": "Agregado Manualmente"}
             st.session_state[f"z_{idx}"] = 0.0 
             
+        st.session_state[f"p_{idx}"] = 0.0
+        st.session_state[f"k_{idx}"] = 0.0
         st.rerun()
 
 # --- INPUTS DE SENSORES ---
 st.subheader("Configuración de Nodos")
 
 if not st.session_state.puntos:
-    st.info("Haga clic en el mapa para agregar nodos de presión.")
+    st.info("Haga clic en el mapa para iniciar una simulación, o cargue un archivo CSV en modo 'Diagnóstico Real'.")
 
 for i in range(len(st.session_state.puntos)):
     with st.expander(f"📍 Nodo {i+1}", expanded=True):
         c1, c2 = st.columns(2)
         
-        # Presión
         st.session_state[f"p_{i}"] = c1.number_input("Presión (PSI)", value=st.session_state.get(f"p_{i}", 0.0), key=f"input_p_{i}", step=0.5)
+        st.session_state[f"z_{i}"] = c2.number_input("Cota REAL (msnm) *", value=st.session_state.get(f"z_{i}", 0.0), key=f"input_z_{i}", format="%.2f", step=0.1)
         
-        # Cota (Altimetría)
-        ayuda_z = "Cota altimétrica. En modo 'Real' debe ingresar la cota levantada en terreno."
-        st.session_state[f"z_{i}"] = c2.number_input("Cota REAL (msnm) *", value=st.session_state.get(f"z_{i}", 0.0), key=f"input_z_{i}", format="%.2f", step=0.1, help=ayuda_z)
-        
-        # Mensajes de UI según el modo
         z_api = st.session_state.datos_nodos.get(i, {}).get("Z_api")
-        if modo == "Simulación de Red":
-            if z_api is not None:
-                st.caption(f"Cota de referencia cargada de la API: {z_api} msnm")
-            else:
-                 st.caption("No se pudo obtener cota de la API. Ingrese manualmente.")
-        elif modo == "Diagnóstico Real (Campo)":
-            if st.session_state[f"z_{i}"] == 0.0:
-                 st.error("⚠️ Ingrese la altimetría de precisión tomada en terreno.")
-            else:
-                 st.success("Dato de terreno ingresado.")
+        st.caption(f"Origen del dato: {z_api}")
         
-        # Accesorios
         if i < len(st.session_state.puntos) - 1:
             st.session_state[f"k_{i}"] = st.number_input("ΣK accesorios (pérdidas menores)", value=st.session_state.get(f"k_{i}", 0.0), key=f"input_k_{i}", step=0.1)
 
 # --- EJECUCIÓN DEL MOTOR HIDRÁULICO ---
 if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
-    # Validación: En modo real no permitimos cálculos con cotas en 0.0
+    # Validación
     if modo == "Diagnóstico Real (Campo)":
         cotas_cero = [i+1 for i in range(len(st.session_state.puntos)) if st.session_state[f"z_{i}"] == 0.0]
         if cotas_cero:
-             st.error(f"Error: Para el Diagnóstico Real debe ingresar la cota en los Nodos: {', '.join(map(str, cotas_cero))}")
+             st.error(f"Error: Altimetría ausente en los Nodos: {', '.join(map(str, cotas_cero))}. Corrija en el panel o en su CSV.")
              st.stop()
 
     if len(st.session_state.puntos) < 2:
@@ -180,7 +203,7 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
         # Nodo Inicial (0)
         z0 = st.session_state[f"z_0"]
         p0 = st.session_state[f"p_0"]
-        h0 = z0 + (p0 * 0.7032) # Energía Total = Cota (Z) + Presión (P/gamma)
+        h0 = z0 + (p0 * 0.7032) # Ecuación de energía corregida
         perfil.append({"Dist": 0.0, "Energia": h0, "Terreno": z0})
         
         for i in range(1, len(st.session_state.puntos)):
@@ -194,12 +217,10 @@ if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
             d_real = math.sqrt(dist_tramo**2 + (z2 - z1)**2)
             dist_acumulada += d_real
             
-            # Diferencial de Energía Real (Medida)
             h_real_1 = z1 + (pres1 * 0.7032)
             h_real_2 = z2 + (pres2 * 0.7032)
             dh_real = h_real_1 - h_real_2
             
-            # Diferencial de Energía Teórica (Calculada)
             hf = perdida_hazen_williams(q, c_hw, d, d_real)
             hm = k_loc * (v**2) / (2 * 9.81)
             dh_teo = hf + hm
