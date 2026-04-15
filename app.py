@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import math
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV FLEXIBLE)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV FUERZA BRUTA)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -91,7 +91,7 @@ with st.sidebar:
 # --- MÓDULO DE INGESTA DE DATOS REALES (CSV) ---
 if modo == "Diagnóstico Real (Campo)":
     st.subheader("📥 Ingesta de Datos de Campo")
-    st.info("Cargue el archivo CSV. El sistema detectará automáticamente las columnas (latitud, longitud, presion, cota/altitud) sin importar mayúsculas.")
+    st.info("Cargue el archivo CSV. El sistema pasará todos los encabezados a minúsculas y buscará coincidencias de forma obligatoria.")
     
     df_template = pd.DataFrame(columns=["latitud", "longitud", "presion", "altitud", "accesorios"])
     csv_template = df_template.to_csv(index=False).encode('utf-8')
@@ -107,17 +107,19 @@ if modo == "Diagnóstico Real (Campo)":
             try:
                 df_campo = pd.read_csv(archivo)
                 
-                # NORMALIZACIÓN FLEXIBLE DE COLUMNAS (Lectura Inteligente)
-                # Convertimos a minúsculas y quitamos espacios en blanco
-                cols_norm = [str(c).strip().lower() for c in df_campo.columns]
-                df_campo.columns = cols_norm
+                # FUERZA BRUTA: Limpieza estricta de encabezados
+                # 1. A string, 2. A minúsculas, 3. Quitar espacios
+                cols = df_campo.columns.astype(str).str.lower().str.strip()
+                # 4. Eliminar BOM (carácter invisible de Excel)
+                cols = [c.replace('\ufeff', '') for c in cols]
+                df_campo.columns = cols
                 
-                # Búsqueda por alias o fragmentos de palabra
-                col_lat = next((c for c in cols_norm if c in ['latitud', 'lat', 'latitude']), None)
-                col_lon = next((c for c in cols_norm if c in ['longitud', 'lon', 'lng', 'longitude']), None)
-                col_p = next((c for c in cols_norm if 'presion' in c or 'psi' in c or 'pres' in c), None)
-                col_z = next((c for c in cols_norm if 'cota' in c or 'altitud' in c or 'elevacion' in c or 'msnm' in c), None)
-                col_k = next((c for c in cols_norm if 'accesorio' in c or 'k' in c or 'perdida' in c), None)
+                # Búsqueda por fragmentos simples
+                col_lat = next((c for c in df_campo.columns if 'lat' in c), None)
+                col_lon = next((c for c in df_campo.columns if 'lon' in c), None)
+                col_p = next((c for c in df_campo.columns if 'pres' in c or 'psi' in c), None)
+                col_z = next((c for c in df_campo.columns if 'cota' in c or 'alt' in c or 'msnm' in c), None)
+                col_k = next((c for c in df_campo.columns if 'acc' in c or c == 'k'), None)
                 
                 if col_lat and col_lon and col_p and col_z:
                     if st.button("Procesar y Mapear Red", type="primary"):
@@ -135,13 +137,16 @@ if modo == "Diagnóstico Real (Campo)":
                         st.rerun()
                 else:
                     faltantes = []
-                    if not col_lat: faltantes.append("Latitud")
-                    if not col_lon: faltantes.append("Longitud")
-                    if not col_p: faltantes.append("Presión")
-                    if not col_z: faltantes.append("Cota/Altitud")
-                    st.error(f"Error de lectura: No se detectaron las columnas de {', '.join(faltantes)}. Revise los encabezados de su CSV.")
+                    if not col_lat: faltantes.append("Latitud (lat)")
+                    if not col_lon: faltantes.append("Longitud (lon)")
+                    if not col_p: faltantes.append("Presión (pres / psi)")
+                    if not col_z: faltantes.append("Cota/Altitud (cota / alt / msnm)")
+                    
+                    st.error("Error de lectura: No se detectaron las columnas requeridas.")
+                    st.warning(f"Faltan detectar: {', '.join(faltantes)}")
+                    st.info(f"Encabezados leídos por el sistema (en bruto): {', '.join(df_campo.columns)}")
             except Exception as e:
-                st.error(f"Error al leer el archivo: {e}")
+                st.error(f"Error crítico al leer el archivo: {e}")
 
 # --- MAPA INTERACTIVO ---
 if len(st.session_state.puntos) > 0:
