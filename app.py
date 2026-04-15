@@ -6,9 +6,10 @@ import numpy as np
 import requests
 import plotly.graph_objects as go
 import math
+import os
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN DEFINITIVA CON CSV FUERZA BRUTA)
+# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS (VERSIÓN LECTURA DIRECTA GITHUB)
 # =============================================================================
 
 st.set_page_config(page_title="IANC_H2O", layout="wide")
@@ -88,29 +89,32 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-# --- MÓDULO DE INGESTA DE DATOS REALES (CSV) ---
+# --- MÓDULO DE INGESTA DE DATOS REALES (CSV DESDE GITHUB) ---
 if modo == "Diagnóstico Real (Campo)":
-    st.subheader("📥 Ingesta de Datos de Campo")
-    st.info("Cargue el archivo CSV. El sistema pasará todos los encabezados a minúsculas y buscará coincidencias de forma obligatoria.")
+    st.subheader("📥 Ingesta de Datos desde el Repositorio")
+    st.info("El sistema está escaneando los archivos subidos a su repositorio en GitHub.")
     
-    df_template = pd.DataFrame(columns=["latitud", "longitud", "presion", "altitud", "accesorios"])
-    csv_template = df_template.to_csv(index=False).encode('utf-8')
+    # Escanear el directorio raíz en busca de archivos CSV
+    archivos_csv = [f for f in os.listdir('.') if f.endswith('.csv')]
     
-    col_upload, col_download = st.columns([3, 1])
-    with col_download:
-        st.download_button("Descargar Plantilla CSV", data=csv_template, file_name="plantilla_ianc_h2o.csv", mime="text/csv", use_container_width=True)
-    
-    with col_upload:
-        archivo = st.file_uploader("Subir archivo (.csv)", type=['csv'], label_visibility="collapsed")
-        
-        if archivo is not None:
+    if not archivos_csv:
+        st.warning("No se encontraron archivos .csv en el repositorio. Por favor, suba su archivo de datos a GitHub.")
+    else:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            archivo_seleccionado = st.selectbox("Seleccione el archivo de topografía:", archivos_csv)
+        with col2:
+            st.write("") # Espaciador
+            st.write("")
+            btn_procesar = st.button("Procesar Archivo", type="primary", use_container_width=True)
+            
+        if btn_procesar:
             try:
-                df_campo = pd.read_csv(archivo)
+                # Leer directamente desde el disco de GitHub
+                df_campo = pd.read_csv(archivo_seleccionado)
                 
                 # FUERZA BRUTA: Limpieza estricta de encabezados
-                # 1. A string, 2. A minúsculas, 3. Quitar espacios
                 cols = df_campo.columns.astype(str).str.lower().str.strip()
-                # 4. Eliminar BOM (carácter invisible de Excel)
                 cols = [c.replace('\ufeff', '') for c in cols]
                 df_campo.columns = cols
                 
@@ -122,19 +126,18 @@ if modo == "Diagnóstico Real (Campo)":
                 col_k = next((c for c in df_campo.columns if 'acc' in c or c == 'k'), None)
                 
                 if col_lat and col_lon and col_p and col_z:
-                    if st.button("Procesar y Mapear Red", type="primary"):
-                        st.session_state.puntos = []
-                        st.session_state.datos_nodos = {}
-                        
-                        for idx, row in df_campo.iterrows():
-                            st.session_state.puntos.append([float(row[col_lat]), float(row[col_lon])])
-                            st.session_state[f"p_{idx}"] = float(row[col_p]) if pd.notna(row[col_p]) else 0.0
-                            st.session_state[f"z_{idx}"] = float(row[col_z]) if pd.notna(row[col_z]) else 0.0
-                            st.session_state[f"k_{idx}"] = float(row[col_k]) if col_k and pd.notna(row[col_k]) else 0.0
-                            st.session_state.datos_nodos[idx] = {"Z_api": "Dato Terreno (CSV)"}
-                        
-                        st.success("Datos topográficos y de presión inyectados en la sesión correctamente.")
-                        st.rerun()
+                    st.session_state.puntos = []
+                    st.session_state.datos_nodos = {}
+                    
+                    for idx, row in df_campo.iterrows():
+                        st.session_state.puntos.append([float(row[col_lat]), float(row[col_lon])])
+                        st.session_state[f"p_{idx}"] = float(row[col_p]) if pd.notna(row[col_p]) else 0.0
+                        st.session_state[f"z_{idx}"] = float(row[col_z]) if pd.notna(row[col_z]) else 0.0
+                        st.session_state[f"k_{idx}"] = float(row[col_k]) if col_k and pd.notna(row[col_k]) else 0.0
+                        st.session_state.datos_nodos[idx] = {"Z_api": f"Dato de: {archivo_seleccionado}"}
+                    
+                    st.success(f"Archivo '{archivo_seleccionado}' inyectado en la sesión correctamente.")
+                    st.rerun()
                 else:
                     faltantes = []
                     if not col_lat: faltantes.append("Latitud (lat)")
@@ -144,9 +147,9 @@ if modo == "Diagnóstico Real (Campo)":
                     
                     st.error("Error de lectura: No se detectaron las columnas requeridas.")
                     st.warning(f"Faltan detectar: {', '.join(faltantes)}")
-                    st.info(f"Encabezados leídos por el sistema (en bruto): {', '.join(df_campo.columns)}")
+                    st.info(f"Encabezados leídos en el archivo: {', '.join(df_campo.columns)}")
             except Exception as e:
-                st.error(f"Error crítico al leer el archivo: {e}")
+                st.error(f"Error crítico al leer el archivo {archivo_seleccionado}: {e}")
 
 # --- MAPA INTERACTIVO ---
 if len(st.session_state.puntos) > 0:
@@ -185,7 +188,7 @@ if mapa and mapa.get("last_clicked"):
 st.subheader("Configuración de Nodos")
 
 if not st.session_state.puntos:
-    st.info("Haga clic en el mapa para iniciar una simulación, o cargue un archivo CSV en modo 'Diagnóstico Real'.")
+    st.info("Haga clic en el mapa para iniciar una simulación, o seleccione un archivo CSV en modo 'Diagnóstico Real'.")
 
 for i in range(len(st.session_state.puntos)):
     with st.expander(f"📍 Nodo {i+1}", expanded=True):
