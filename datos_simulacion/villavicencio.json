@@ -1,0 +1,105 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_1",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -73.6266,
+                        4.142
+                    ],
+                    [
+                        -73.6261,
+                        4.1432
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_2",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -73.6261,
+                        4.1432
+                    ],
+                    [
+                        -73.62559999999999,
+                        4.1444
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_3",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -73.62559999999999,
+                        4.1444
+                    ],
+                    [
+                        -73.6241,
+                        4.1448
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_4",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -73.6241,
+                        4.1448
+                    ],
+                    [
+                        -73.6226,
+                        4.1452
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "secundaria",
+                "tipo": "Rama"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -73.62559999999999,
+                        4.1444
+                    ],
+                    [
+                        -73.62759999999999,
+                        4.1454
+                    ]
+                ]
+            }
+        }
+    ]
+}

@@ -3,288 +3,699 @@ import folium
 from streamlit_folium import st_folium
 import pandas as pd
 import numpy as np
-import requests
 import plotly.graph_objects as go
 import math
 import os
+from geopy.geocoders import Nominatim
+import geopandas as gpd
 
 # =============================================================================
-# IANC_H2O - SISTEMA DE DETECCIÓN DE FUGAS 
-# VERSIÓN: BÚSQUEDA PROFUNDA + MEMORIA DE CÁLCULO AUDITABLE
+# IANC_H2O - SISTEMA INTEGRAL DE AUDITORÍA HIDRÁULICA PROFESIONAL
+# VERSIÓN: 2026.25 - OPTIMIZACIÓN DE LOCALIZACIÓN EXACTA
 # =============================================================================
 
-st.set_page_config(page_title="IANC_H2O", layout="wide")
+st.set_page_config(page_title="IANC_H2O - Auditor Hidráulico", layout="wide")
 
-# --- FUNCIONES MATEMÁTICAS ---
-def haversine_esferico(lat1, lon1, lat2, lon2):
-    R = 6371000.0 
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2.0)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2.0)**2
+# --- NÚCLEO FÍSICO Y MATEMÁTICO ---
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dp/2.0)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2.0)**2
     return R * (2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0-a)))
 
-def perdida_hazen_williams(q_ls, c, d_pulg, l_m):
-    q_m3s = q_ls / 1000.0
-    d_m = d_pulg * 0.0254
-    if c == 0 or d_m == 0: return 0.0
-    return 10.67 * (q_m3s**1.852) * l_m / ((c**1.852) * (d_m**4.87))
+def interpolar_coordenadas(p1, p2, distancia_fuga, distancia_total):
+    if distancia_total <= 0: return p1
+    ratio = min(max(distancia_fuga / distancia_total, 0), 1)
+    lat_fuga = p1[0] + (p2[0] - p1[0]) * ratio
+    lon_fuga = p1[1] + (p2[1] - p1[1]) * ratio
+    return [lat_fuga, lon_fuga]
 
-def obtener_cota_referencia(lat, lon):
+def obtener_direccion_fisica(lat, lon):
     try:
-        url = f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}"
-        r = requests.get(url, timeout=3).json()
-        return round(r["elevation"][0], 2) if "elevation" in r else None
+        geolocator = Nominatim(user_agent="ianc_h2o_pro_v2026")
+        location = geolocator.reverse((lat, lon), timeout=10, language='es')
+        if location:
+            address = location.raw.get('address', {})
+            calle = address.get('road', 'Vía sin nombre')
+            numero = address.get('house_number', '')
+            barrio = address.get('neighbourhood', address.get('suburb', ''))
+            return f"{calle} {numero}, {barrio}".strip(", ")
+        return f"Coord: {lat}, {lon}"
     except:
-        return None
+        return f"Coord: {lat}, {lon}"
 
-# --- ESTADO DE SESIÓN ---
-if "puntos" not in st.session_state:
+def procesar_cartografia(ruta_archivo):
+    gdf = gpd.read_file(ruta_archivo).to_crs(epsg=4326)
+    gdf_metrico = gdf.to_crs(epsg=3116)
+    gdf['longitud_real_m'] = gdf_metrico.geometry.length
+    return gdf
+
+def reset_total_sistema():
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     st.session_state.puntos = []
-if "datos_nodos" not in st.session_state:
-    st.session_state.datos_nodos = {}
 
-# --- PANEL DE CONFIGURACIÓN ---
-st.title("IANC_H2O - Diagnóstico Hidráulico")
+if "puntos" not in st.session_state: reset_total_sistema()
+
+st.title("💧 IANC_H2O - Diagnóstico Integral")
 
 with st.sidebar:
-    st.header("Configuración de Escenario")
-    
-    municipios = {
-        "Villeta": [5.0113, -74.4754],
-        "Neiva": [2.9273, -75.2819],
-        "Villavicencio": [4.1420, -73.6266],
-        "Chaparral": [3.7235, -75.4833]
-    }
-    muni_sel = st.selectbox("Seleccione el Municipio", list(municipios.keys()))
-    centro_mapa = municipios[muni_sel]
+    st.header("⚙️ Gestión de Datos")
+    if st.button("LIMPIAR SESIÓN (RESET TOTAL)", width='stretch', type="primary"):
+        reset_total_sistema(); st.rerun()
 
-    if "modo_operacion" not in st.session_state:
-        st.session_state.modo_operacion = "Simulación de Red"
+tab_csv, tab_correlacion = st.tabs(["📥 Inferencia por Gradiente", "🎧 Inferencia por Correlación"])
 
-    nuevo_modo = st.radio(
-        "Modo de Operación", 
-        ["Simulación de Red", "Diagnóstico Real (Campo)"], 
-        index=["Simulación de Red", "Diagnóstico Real (Campo)"].index(st.session_state.modo_operacion)
+CARPETA = "datos_simulacion"
+if not os.path.exists(CARPETA): os.makedirs(CARPETA)
+archivos_json = [f for f in os.listdir(CARPETA) if f.lower().endswith(('.geojson', '.json'))]
+
+# =============================================================================
+# MÓDULO 1: GRADIENTE (PRESIÓN Y FRICCIÓN)
+# =============================================================================
+with tab_csv:
+    archivos_csv = [f for f in os.listdir(CARPETA) if f.lower().endswith('.csv')]
+    col_a, col_b = st.columns(2)
+    csv_sel = col_a.selectbox("Mediciones (CSV):", archivos_csv, key="csv_g")
+    json_sel = col_b.selectbox("Cartografía (GeoJSON):", archivos_json, key="json_g")
+
+    if st.button("CARGAR PROYECTO GRADIENTE", type="primary"):
+        if csv_sel and json_sel:
+            df = pd.read_csv(os.path.join(CARPETA, csv_sel))
+            df.columns = df.columns.astype(str).str.lower().str.strip()
+            c_lat = next((c for c in df.columns if 'lat' in c), None)
+            c_lon = next((c for c in df.columns if 'lon' in c), None)
+            c_p = next((c for c in df.columns if 'pres' in c or 'psi' in c), None)
+            c_z = next((c for c in df.columns if 'cota' in c or 'alt' in c), None)
+            c_q = next((c for c in df.columns if 'caudal' in c or 'flow' in c), None)
+            c_d = next((c for c in df.columns if 'diam' in c or 'pulg' in c), None)
+            c_id = next((c for c in df.columns if 'id' in c or 'sensor' in c), None)
+            
+            st.session_state.puntos = []
+            for idx, row in df.iterrows():
+                st.session_state.puntos.append([float(row[c_lat]), float(row[c_lon])])
+                st.session_state[f"id_{idx}"] = str(row[c_id]) if c_id else f"S-{idx}"
+                st.session_state[f"lat_{idx}"] = float(row[c_lat])
+                st.session_state[f"lon_{idx}"] = float(row[c_lon])
+                st.session_state[f"zi_{idx}"] = float(row[c_z])
+                st.session_state[f"pi_{idx}"] = float(row[c_p])
+                st.session_state[f"qi_{idx}"] = float(row[c_q]) if not pd.isna(row[c_q]) else 0.0
+                st.session_state[f"di_{idx}"] = float(row[c_d]) if not pd.isna(row[c_d]) else 0.0
+            
+            st.session_state.red_cartografica = procesar_cartografia(os.path.join(CARPETA, json_sel))
+            st.rerun()
+
+    if st.session_state.puntos:
+        m_g = folium.Map(location=st.session_state.puntos[0], zoom_start=17)
+        folium.GeoJson(st.session_state.red_cartografica).add_to(m_g)
+        for i, p in enumerate(st.session_state.puntos):
+            folium.Marker(p, tooltip=st.session_state[f"id_{i}"], icon=folium.Icon(color='blue', icon='info-sign')).add_to(m_g)
+        st_folium(m_g, width='stretch', height=400, key="map_grad")
+
+        for i in range(len(st.session_state.puntos)):
+            with st.expander(f"📍 Nodo: {st.session_state[f'id_{i}']}", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                st.session_state[f"lat_g_{i}"] = st.number_input("Latitud", value=st.session_state[f"lat_{i}"], format="%.8f", key=f"lat_input_{i}")
+                st.session_state[f"lon_g_{i}"] = st.number_input("Longitud", value=st.session_state[f"lon_{i}"], format="%.8f", key=f"lon_input_g_{i}")
+                st.session_state[f"pi_g_{i}"] = st.number_input("Presión (PSI)", value=st.session_state[f"pi_{i}"], key=f"pi_input_{i}")
+                d1, d2, d3 = st.columns(3)
+                st.session_state[f"zi_g_{i}"] = st.number_input("Cota (msnm)", value=st.session_state[f"zi_{i}"], key=f"zi_input_{i}")
+                st.session_state[f"qi_g_{i}"] = st.number_input("Caudal (L/s)", value=st.session_state[f"qi_{i}"], key=f"qi_input_{i}")
+                st.session_state[f"di_g_{i}"] = st.number_input("Diámetro (in)", value=st.session_state[f"di_{i}"], key=f"di_input_{i}")
+
+        if st.button("ANALIZAR GRADIENTE HIDRÁULICO", type="primary", use_container_width=True):
+            tramos, c_reales = [], []
+            for i in range(1, len(st.session_state.puntos)):
+                h1 = st.session_state[f"zi_g_{i-1}"] + (st.session_state[f"pi_g_{i-1}"] * 0.7032)
+                h2 = st.session_state[f"zi_g_{i}"] + (st.session_state[f"pi_g_{i}"] * 0.7032)
+                l = st.session_state.red_cartografica.iloc[i-1]['longitud_real_m'] if i-1 < len(st.session_state.red_cartografica) else haversine(st.session_state[f"lat_g_{i-1}"], st.session_state[f"lon_g_{i-1}"], st.session_state[f"lat_g_{i}"], st.session_state[f"lon_g_{i}"])
+                
+                if (h1-h2) > 0.1 and st.session_state[f"qi_g_{i-1}"] > 0:
+                    c = ( (10.67 * (st.session_state[f"qi_g_{i-1}"]/1000)**1.852 * l) / ((h1-h2) * (st.session_state[f"di_g_{i-1}"]*0.0254)**4.87) )**(1/1.852)
+                    c_reales.append(c)
+                tramos.append({"dh": h1-h2, "l": l})
+
+            c_avg = min(max(np.median(c_reales) if c_reales else 140.0, 70), 150)
+            st.session_state['fugas_gradiente'] = []
+            
+            for i, t in enumerate(tramos):
+                hf_t = 10.67 * (st.session_state[f"qi_g_{i}"]/1000.0)**1.852 * t["l"] / ((c_avg**1.852) * ((st.session_state[f"di_g_{i}"]*0.0254)**4.87))
+                
+                if (t["dh"] - hf_t) > 0.3:
+                    dist_f = t["l"] * (hf_t / t["dh"])
+                    cf = interpolar_coordenadas([st.session_state[f"lat_g_{i}"], st.session_state[f"lon_g_{i}"]], [st.session_state[f"lat_g_{i+1}"], st.session_state[f"lon_g_{i+1}"]], dist_f, t["l"])
+                    
+                    presion_mca = max(0.1, st.session_state[f"pi_g_{i}"] * 0.7032)
+                    vol = 0.12 * math.sqrt(presion_mca)
+                    
+                    q_ref = st.session_state[f"qi_g_{i}"] if st.session_state[f"qi_g_{i}"] > 0 else 2.0
+                    vol = min(vol, q_ref * 0.1)
+
+                    st.session_state['fugas_gradiente'].append({
+                        "tramo": f"{st.session_state[f'id_{i}']} → {st.session_state[f'id_{i+1}']}", 
+                        "lat": cf[0], "lon": cf[1], "vol": vol
+                    })
+
+    if st.session_state.get('fugas_gradiente'):
+        st.subheader("🚩 Informe de Fugas por Gradiente")
+        for f in st.session_state['fugas_gradiente']:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2, 1, 1])
+                c1.write(f"**📍 Ubicación:** {obtener_direccion_fisica(f['lat'], f['lon'])}")
+                c1.code(f"Lat: {f['lat']:.8f}, Lon: {f['lon']:.8f}")
+                c2.metric("Pérdida Estimada", f"{f['vol']:.3f} L/s")
+                c3.link_button("🗺️ Google Maps", f"https://www.google.com/maps?q={f['lat']},{f['lon']}")
+# =============================================================================
+# MÓDULO CORRELACIÓN ACÚSTICA (VERSIÓN FINAL + DIRECTORIO FIJO CSV)
+# =============================================================================
+
+import os
+import glob
+import numpy as np
+import pandas as pd
+import scipy.signal as signal
+
+# =============================================================================
+# CONFIGURACIÓN
+# =============================================================================
+
+VELOCIDADES_MATERIALES = {
+    "PVC": 400,
+    "PEAD": 300,
+    "Hierro dúctil": 1000,
+    "Asbesto cemento": 600,
+    "Desconocido": 500
+}
+
+CARPETA_SIMULACION = "datos_simulacion"
+
+# crear carpeta automáticamente si no existe
+os.makedirs(CARPETA_SIMULACION, exist_ok=True)
+
+# =============================================================================
+# GCC-PHAT
+# =============================================================================
+
+def gcc_phat(x, y):
+
+    n = len(x) + len(y)
+
+    X = np.fft.rfft(x, n=n)
+    Y = np.fft.rfft(y, n=n)
+
+    R = X * np.conj(Y)
+    R /= (np.abs(R) + 1e-12)
+
+    cc = np.fft.irfft(R, n=n)
+
+    max_shift = n // 2
+
+    cc = np.concatenate((cc[-max_shift:], cc[:max_shift+1]))
+    lags = np.arange(-max_shift, max_shift+1)
+
+    idx = np.argmax(np.abs(cc))
+
+    return cc, lags, idx
+
+# =============================================================================
+# REFINAMIENTO SUB-MUESTRA
+# =============================================================================
+
+def refine_peak(corr, lags, idx, fs):
+
+    if idx <= 0 or idx >= len(corr)-1:
+        return lags[idx] / fs
+
+    y0 = corr[idx - 1]
+    y1 = corr[idx]
+    y2 = corr[idx + 1]
+
+    den = (y0 - 2*y1 + y2)
+
+    if abs(den) > 1e-12:
+        delta = 0.5 * (y0 - y2) / den
+    else:
+        delta = 0.0
+
+    delay = lags[idx] + delta
+
+    return delay / fs
+
+# =============================================================================
+# INTERFAZ
+# =============================================================================
+
+with tab_correlacion:
+
+    st.header("🎧 Correlación Acústica (Precisión Operativa)")
+
+    # =========================================================================
+    # RED
+    # =========================================================================
+
+    json_sel = st.selectbox(
+        "Seleccione red:",
+        ["-- Seleccione --"] + archivos_json
     )
-    
-    if nuevo_modo != st.session_state.modo_operacion:
-        st.session_state.modo_operacion = nuevo_modo
-        st.session_state.puntos = []
-        st.session_state.datos_nodos = {}
-        st.rerun()
 
-    modo = st.session_state.modo_operacion
-    
-    st.divider()
-    st.header("Parámetros de Red")
-    q = st.number_input("Caudal (L/s)", value=20.0, step=0.1)
-    d = st.number_input("Diámetro Interno (pulg)", value=6.0, step=0.1)
-    c_hw = st.slider("Coeficiente C (Hazen-Williams)", 100, 150, 140)
-    
-    if st.button("Limpiar Mapa y Datos", use_container_width=True):
-        st.session_state.puntos = []
-        st.session_state.datos_nodos = {}
-        for key in list(st.session_state.keys()):
-            if key.startswith("p_") or key.startswith("z_") or key.startswith("k_"):
-                del st.session_state[key]
-        st.rerun()
+    if json_sel != "-- Seleccione --":
 
-# --- MÓDULO DE INGESTA DE DATOS DESDE GITHUB (BÚSQUEDA PROFUNDA) ---
-if modo == "Diagnóstico Real (Campo)":
-    st.subheader("📥 Ingesta de Datos desde el Repositorio")
-    
-    archivos_csv = []
-    rutas_absolutas = {}
-    directorio_base = os.path.dirname(os.path.abspath(__file__))
-    
-    for root, dirs, files in os.walk(directorio_base):
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
-        for file in files:
-            if file.lower().endswith('.csv'):
-                ruta_completa = os.path.join(root, file)
-                ruta_amigable = os.path.relpath(ruta_completa, directorio_base)
-                archivos_csv.append(ruta_amigable)
-                rutas_absolutas[ruta_amigable] = ruta_completa
-    
-    if not archivos_csv:
-        st.error("No se encontraron archivos .csv en el repositorio ni en sus subcarpetas.")
-    else:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            archivo_seleccionado = st.selectbox("Seleccione el archivo de campo:", archivos_csv)
-        with col2:
-            st.write("")
-            st.write("")
-            btn_procesar = st.button("Cargar Datos", type="primary", use_container_width=True)
-            
-        if btn_procesar:
-            try:
-                ruta_para_leer = rutas_absolutas[archivo_seleccionado]
-                df_campo = pd.read_csv(ruta_para_leer)
-                
-                cols = df_campo.columns.astype(str).str.lower().str.strip()
-                cols = [c.replace('\ufeff', '') for c in cols]
-                df_campo.columns = cols
-                
-                col_lat = next((c for c in df_campo.columns if 'lat' in c), None)
-                col_lon = next((c for c in df_campo.columns if 'lon' in c), None)
-                col_p = next((c for c in df_campo.columns if 'pres' in c or 'psi' in c), None)
-                col_z = next((c for c in df_campo.columns if 'cota' in c or 'alt' in c or 'msnm' in c), None)
-                col_k = next((c for c in df_campo.columns if 'acc' in c or c == 'k'), None)
-                
-                if col_lat and col_lon and col_p and col_z:
-                    st.session_state.puntos = []
-                    st.session_state.datos_nodos = {}
-                    
-                    for idx, row in df_campo.iterrows():
-                        st.session_state.puntos.append([float(row[col_lat]), float(row[col_lon])])
-                        st.session_state[f"p_{idx}"] = float(row[col_p]) if pd.notna(row[col_p]) else 0.0
-                        st.session_state[f"z_{idx}"] = float(row[col_z]) if pd.notna(row[col_z]) else 0.0
-                        st.session_state[f"k_{idx}"] = float(row[col_k]) if col_k and pd.notna(row[col_k]) else 0.0
-                        st.session_state.datos_nodos[idx] = {"Z_api": f"Fuente: {archivo_seleccionado}"}
-                    
-                    st.success(f"Configuración de red cargada desde '{archivo_seleccionado}'.")
-                    st.rerun()
-                else:
-                    st.error("El archivo no tiene el formato esperado (latitud, longitud, presión, cota/altitud).")
-            except Exception as e:
-                st.error(f"Error crítico al abrir el archivo: {e}")
+        gdf_p = gpd.read_file(
+            os.path.join(CARPETA, json_sel)
+        ).to_crs(epsg=4326)
 
-# --- MAPA INTERACTIVO ---
-if len(st.session_state.puntos) > 0:
-    centro = st.session_state.puntos[0]
-else:
-    centro = centro_mapa
+        gdf_m = gdf_p.to_crs(epsg=3116)
 
-m = folium.Map(location=centro, zoom_start=15)
-for i, p in enumerate(st.session_state.puntos):
-    folium.Marker(p, tooltip=f"Nodo {i+1}").add_to(m)
-if len(st.session_state.puntos) > 1:
-    folium.PolyLine(st.session_state.puntos, color="blue").add_to(m)
+        linea = gdf_m.geometry.iloc[0]
+        L = linea.length
 
-mapa = st_folium(m, width=None, height=450)
+        coords = list(gdf_p.geometry.iloc[0].coords)
 
-# Lógica de Captura Manual
-if mapa and mapa.get("last_clicked"):
-    lat, lon = mapa["last_clicked"]["lat"], mapa["last_clicked"]["lng"]
-    if [lat, lon] not in st.session_state.puntos:
-        st.session_state.puntos.append([lat, lon])
-        idx = len(st.session_state.puntos) - 1
-        
-        if modo == "Simulación de Red":
-            z_ref = obtener_cota_referencia(lat, lon)
-            st.session_state.datos_nodos[idx] = {"Z_api": z_ref}
-            st.session_state[f"z_{idx}"] = float(z_ref if z_ref else 0.0)
+        pos_a = [coords[0][1], coords[0][0]]
+        pos_b = [coords[-1][1], coords[-1][0]]
+
+        st.session_state['linea'] = linea
+        st.session_state['L'] = L
+        st.session_state['pos_a'] = pos_a
+        st.session_state['pos_b'] = pos_b
+        st.session_state['red'] = gdf_p
+
+    # =========================================================================
+    # CONTINUAR
+    # =========================================================================
+
+    if 'linea' in st.session_state:
+
+        # =====================================================================
+        # PARÁMETROS
+        # =====================================================================
+
+        st.subheader("1. Parámetros")
+
+        c1, c2, c3 = st.columns(3)
+
+        material = c1.selectbox(
+            "Material",
+            list(VELOCIDADES_MATERIALES.keys())
+        )
+
+        v_default = VELOCIDADES_MATERIALES[material]
+
+        modo_v = c2.selectbox(
+            "Velocidad",
+            ["Automática", "Manual"]
+        )
+
+        if modo_v == "Automática":
+
+            v = v_default
+
+            c3.metric(
+                "v (m/s)",
+                v
+            )
+
         else:
-            st.session_state.datos_nodos[idx] = {"Z_api": "Agregado Manualmente"}
-            st.session_state[f"z_{idx}"] = 0.0 
-            
-        st.session_state[f"p_{idx}"] = 0.0
-        st.session_state[f"k_{idx}"] = 0.0
-        st.rerun()
 
-# --- PANEL DE NODOS ---
-st.subheader("Configuración de Nodos")
+            v = c3.number_input(
+                "v (m/s)",
+                value=float(v_default)
+            )
 
-for i in range(len(st.session_state.puntos)):
-    with st.expander(f"📍 Nodo {i+1}", expanded=(i == len(st.session_state.puntos)-1)):
-        c1, c2 = st.columns(2)
-        st.session_state[f"p_{i}"] = c1.number_input("Presión (PSI)", value=st.session_state.get(f"p_{i}", 0.0), key=f"input_p_{i}", step=0.5)
-        st.session_state[f"z_{i}"] = c2.number_input("Cota REAL (msnm)", value=st.session_state.get(f"z_{i}", 0.0), key=f"input_z_{i}", format="%.2f", step=0.1)
-        
-        z_api = st.session_state.datos_nodos.get(i, {}).get("Z_api")
-        st.caption(f"Origen: {z_api}")
-        
-        if i < len(st.session_state.puntos) - 1:
-            st.session_state[f"k_{i}"] = st.number_input("ΣK accesorios", value=st.session_state.get(f"k_{i}", 0.0), key=f"input_k_{i}", step=0.1)
+        fs = st.number_input(
+            "Frecuencia (Hz)",
+            value=16000
+        )
 
-# --- ANÁLISIS Y MEMORIA DE CÁLCULO ---
-if st.button("Ejecutar Análisis Termodinámico", use_container_width=True):
-    if len(st.session_state.puntos) < 2:
-        st.error("Se requieren al menos 2 nodos para realizar el cálculo diferencial.")
-    else:
-        perfil = []
-        dist_acumulada = 0.0
-        fugas = []
-        
-        area = math.pi * ((d * 0.0254)**2) / 4.0
-        v = (q / 1000.0) / area if area > 0 else 0
-        
-        z0 = st.session_state[f"z_0"]
-        p0 = st.session_state[f"p_0"]
-        h0 = z0 + (p0 * 0.7032) 
-        perfil.append({"Dist": 0.0, "Energia": h0, "Terreno": z0})
-        
-        st.divider()
-        st.subheader("Memoria de Cálculo Transparente")
-        st.info("Despliegue cada tramo para auditar las variables, la ecuación de energía y las pérdidas matemáticas de fondo.")
-        
-        for i in range(1, len(st.session_state.puntos)):
-            p1, p2 = st.session_state.puntos[i-1], st.session_state.puntos[i]
-            dist_tramo = haversine_esferico(p1[0], p1[1], p2[0], p2[1])
-            
-            z1, z2 = st.session_state[f"z_{i-1}"], st.session_state[f"z_{i}"]
-            pres1, pres2 = st.session_state[f"p_{i-1}"], st.session_state[f"p_{i}"]
-            k_loc = st.session_state[f"k_{i-1}"]
-            
-            d_real = math.sqrt(dist_tramo**2 + (z2 - z1)**2)
-            dist_acumulada += d_real
-            
-            h_real_1 = z1 + (pres1 * 0.7032)
-            h_real_2 = z2 + (pres2 * 0.7032)
-            dh_real = h_real_1 - h_real_2
-            
-            hf = perdida_hazen_williams(q, c_hw, d, d_real)
-            hm = k_loc * (v**2) / (2 * 9.81)
-            dh_teo = hf + hm
-            diferencia = dh_real - dh_teo
-            
-            perfil.append({"Dist": dist_acumulada, "Energia": h_real_2, "Terreno": z2})
-            
-            if diferencia > 0.14:
-                x_f = d_real * (dh_teo / dh_real) if dh_real != 0 else 0
-                fugas.append({"tramo": f"{i} → {i+1}", "pos": x_f, "perda": diferencia})
+        # =====================================================================
+        # UMBRALES
+        # =====================================================================
 
-            # EXPOSICIÓN DE LA MEMORIA DE CÁLCULO
-            with st.expander(f"🔍 Auditoría Tramo: Nodo {i} → Nodo {i+1}"):
-                st.markdown("**1. Topografía y Longitud**")
-                st.markdown(f"- Distancia Plana (Haversine): `{dist_tramo:.2f} m`")
-                st.markdown(f"- Cota Inicial ($Z_1$): `{z1} m` | Cota Final ($Z_2$): `{z2} m`")
-                st.latex(r"L_{real} = \sqrt{D_{plana}^2 + (Z_2 - Z_1)^2}")
-                st.markdown(f"- Longitud Inclinada ($L_{{real}}$): **`{d_real:.2f} m`**")
-                
-                st.markdown("**2. Ecuación de Energía Real (Mediciones de Campo)**")
-                st.latex(r"H = Z + (P_{psi} \times 0.7032)")
-                st.markdown(f"- Energía Total Nodo {i} ($H_1$): `{z1} + ({pres1} \times 0.7032)` = **`{h_real_1:.2f} mca`**")
-                st.markdown(f"- Energía Total Nodo {i+1} ($H_2$): `{z2} + ({pres2} \times 0.7032)` = **`{h_real_2:.2f} mca`**")
-                st.markdown(f"- Diferencial Medido ($\Delta H_{{real}} = H_1 - H_2$): **`{dh_real:.2f} mca`**")
-                
-                st.markdown("**3. Gradiente Teórico (Modelo Matemático)**")
-                st.markdown(f"- Velocidad del Flujo ($V$): `{v:.2f} m/s`")
-                st.markdown(f"- Pérdidas Menores ($h_m = K \cdot \frac{{v^2}}{{2g}}$): `{k_loc} \cdot \frac{{{v:.2f}^2}}{{19.62}}` = `{hm:.2f} mca`")
-                st.markdown(f"- Pérdida por Fricción Hazen-Williams ($h_f$): `{hf:.2f} mca`")
-                st.markdown(f"- Pérdida Teórica Esperada ($\Delta H_{{teo}} = h_f + h_m$): **`{dh_teo:.2f} mca`**")
-                
-                st.markdown("**4. Conclusión Termodinámica**")
-                st.markdown(f"Diferencia Excedente ($\Delta H_{{real}} - \Delta H_{{teo}}$): **`{diferencia:.2f} mca`**")
-                if diferencia > 0.14:
-                    st.error("⚠️ El exceso de pérdida supera el umbral de 0.14 mca (0.2 PSI). Fuga termodinámica detectada.")
+        st.subheader("2. Umbrales")
+
+        c4, c5 = st.columns(2)
+
+        thr_rho = c4.number_input(
+            "ρ mínimo",
+            value=0.3
+        )
+
+        thr_snr = c5.number_input(
+            "SNR mínimo",
+            value=4.0
+        )
+
+        # =====================================================================
+        # ENTRADA
+        # =====================================================================
+
+        st.subheader("3. Entrada")
+
+        modo = st.radio(
+            "Modo",
+            ["Simulación", "CSV"]
+        )
+
+        # =====================================================================
+        # SIMULACIÓN
+        # =====================================================================
+
+        if modo == "Simulación":
+
+            dur = st.slider(
+                "Duración (s)",
+                1,
+                10,
+                5
+            )
+
+            tipo = st.selectbox(
+                "Escenario",
+                ["Correlacionado", "Ruido"]
+            )
+
+            if st.button("Generar señales"):
+
+                t = np.linspace(
+                    0,
+                    dur,
+                    int(fs * dur)
+                )
+
+                base = np.random.normal(
+                    0,
+                    1,
+                    len(t)
+                )
+
+                if tipo == "Correlacionado":
+
+                    delay = np.random.randint(
+                        -int(0.01 * fs),
+                        int(0.01 * fs)
+                    )
+
+                    a = base
+                    b = np.roll(base, delay)
+
                 else:
-                    st.success("✅ El comportamiento termodinámico concuerda con las leyes de fricción para este tramo.")
 
-        # --- RESULTADOS Y GRÁFICA ---
-        st.divider()
-        st.subheader("Resumen Diagnóstico")
-        if fugas:
-            for f in fugas: 
-                st.warning(f"⚠️ Alerta Crítica en Tramo {f['tramo']}. Búsqueda focalizada recomendada a {f['pos']:.2f}m del Nodo de origen. (Pérdida inexplicable: {f['perda']:.2f} mca)")
+                    a = np.random.normal(0, 1, len(t))
+                    b = np.random.normal(0, 1, len(t))
+
+                a += np.random.normal(0, 0.3, len(t))
+                b += np.random.normal(0, 0.3, len(t))
+
+                st.session_state['a'] = a
+                st.session_state['b'] = b
+
+                st.success("Señales simuladas generadas")
+
+        # =====================================================================
+        # CSV DESDE DIRECTORIO FIJO
+        # =====================================================================
+
         else:
-            st.success("Sistema estabilizado. No se detectan gradientes anómalos.")
-            
-        df = pd.DataFrame(perfil)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Energia"], name="Línea de Energía (H)", line=dict(color='blue', width=3)))
-        fig.add_trace(go.Scatter(x=df["Dist"], y=df["Terreno"], name="Perfil Topográfico (Z)", fill='tozeroy', line=dict(color='brown')))
-        fig.update_layout(title="Perfil Espacial Hidráulico", xaxis_title="Longitud Acumulada (m)", yaxis_title="msnm / mca")
-        st.plotly_chart(fig, use_container_width=True)
+
+            st.info(
+                f"Los CSV deben existir dentro de: {CARPETA_SIMULACION}"
+            )
+
+            archivos_csv = glob.glob(
+                os.path.join(CARPETA_SIMULACION, "*.csv")
+            )
+
+            nombres_csv = [
+                os.path.basename(x)
+                for x in archivos_csv
+            ]
+
+            if len(nombres_csv) == 0:
+
+                st.warning(
+                    "No existen CSV en datos_simulacion"
+                )
+
+            else:
+
+                col1, col2 = st.columns(2)
+
+                csv_a = col1.selectbox(
+                    "Sensor A",
+                    nombres_csv,
+                    key="csv_a"
+                )
+
+                csv_b = col2.selectbox(
+                    "Sensor B",
+                    nombres_csv,
+                    key="csv_b"
+                )
+
+                if st.button("Cargar CSV"):
+
+                    ruta_a = os.path.join(
+                        CARPETA_SIMULACION,
+                        csv_a
+                    )
+
+                    ruta_b = os.path.join(
+                        CARPETA_SIMULACION,
+                        csv_b
+                    )
+
+                    st.session_state['a'] = pd.read_csv(
+                        ruta_a
+                    ).iloc[:, 0].values
+
+                    st.session_state['b'] = pd.read_csv(
+                        ruta_b
+                    ).iloc[:, 0].values
+
+                    st.success("CSV cargados correctamente")
+
+        # =====================================================================
+        # EJECUCIÓN
+        # =====================================================================
+
+        if 'a' in st.session_state and 'b' in st.session_state:
+
+            if st.button("Ejecutar correlación"):
+
+                xa = st.session_state['a']
+                xb = st.session_state['b']
+
+                xa = xa - np.mean(xa)
+                xb = xb - np.mean(xb)
+
+                # ventana
+                w = np.hanning(len(xa))
+
+                xa *= w
+                xb *= w
+
+                # filtro
+                b_f, a_f = signal.butter(
+                    4,
+                    [100 / (fs / 2), 2000 / (fs / 2)],
+                    btype='band'
+                )
+
+                xa = signal.filtfilt(b_f, a_f, xa)
+                xb = signal.filtfilt(b_f, a_f, xb)
+
+                # correlación
+                corr, lags, idx = gcc_phat(xa, xb)
+
+                # refinamiento
+                delta_t = refine_peak(
+                    corr,
+                    lags,
+                    idx,
+                    fs
+                )
+
+                # métricas
+                rho = np.max(np.abs(corr))
+
+                fondo = np.percentile(
+                    np.abs(corr),
+                    90
+                )
+
+                snr = rho / (fondo + 1e-12)
+
+                st.session_state['metricas'] = {
+                    "rho": rho,
+                    "snr": snr
+                }
+
+                # =============================================================
+                # DECISIÓN
+                # =============================================================
+
+                if rho < thr_rho or snr < thr_snr:
+
+                    st.session_state['resultado'] = None
+                    st.session_state['estado'] = "NO"
+
+                else:
+
+                    L = st.session_state['L']
+
+                    x = (L + v * delta_t) / 2
+
+                    linea = st.session_state['linea']
+
+                    punto = gpd.GeoSeries(
+                        [linea.interpolate(x)],
+                        crs="EPSG:3116"
+                    ).to_crs(
+                        epsg=4326
+                    ).iloc[0]
+
+                    st.session_state['resultado'] = {
+                        "x": x,
+                        "lat": punto.y,
+                        "lon": punto.x
+                    }
+
+                    st.session_state['estado'] = "OK"
+
+                st.session_state['corr'] = corr
+
+        # =====================================================================
+        # RESULTADOS
+        # =====================================================================
+
+        if 'metricas' in st.session_state:
+
+            st.write(
+                f"ρ: {st.session_state['metricas']['rho']:.3f}"
+            )
+
+            st.write(
+                f"SNR: {st.session_state['metricas']['snr']:.2f}"
+            )
+
+        # =====================================================================
+        # SIN EVIDENCIA
+        # =====================================================================
+
+        if st.session_state.get('estado') == "NO":
+
+            st.warning("SIN EVIDENCIA DE FUGA")
+
+        # =====================================================================
+        # RESULTADO POSITIVO
+        # =====================================================================
+
+        if st.session_state.get('estado') == "OK":
+
+            res = st.session_state['resultado']
+
+            st.success(
+                f"Posible fuga a {res['x']:.2f} m desde Sensor A"
+            )
+
+            # ================================================================
+            # MAPA
+            # ================================================================
+
+            m = folium.Map(
+                location=[res['lat'], res['lon']],
+                zoom_start=19
+            )
+
+            icon_a = folium.CustomIcon(
+                "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+                icon_size=(32, 32)
+            )
+
+            icon_b = folium.CustomIcon(
+                "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+                icon_size=(32, 32)
+            )
+
+            icon_f = folium.CustomIcon(
+                "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+                icon_size=(32, 32)
+            )
+
+            folium.GeoJson(
+                st.session_state['red']
+            ).add_to(m)
+
+            folium.Marker(
+                st.session_state['pos_a'],
+                icon=icon_a
+            ).add_to(m)
+
+            folium.Marker(
+                st.session_state['pos_b'],
+                icon=icon_b
+            ).add_to(m)
+
+            folium.Marker(
+                [res['lat'], res['lon']],
+                icon=icon_f
+            ).add_to(m)
+
+            st_folium(
+                m,
+                width=1200,
+                height=450
+            )
+
+            # ================================================================
+            # GOOGLE MAPS
+            # ================================================================
+
+            lat = res['lat']
+            lon = res['lon']
+
+            st.code(
+                f"Lat: {lat:.8f}, Lon: {lon:.8f}"
+            )
+
+            url = f"https://www.google.com/maps?q={lat},{lon}"
+
+            st.link_button(
+                "Abrir en Google Maps",
+                url
+            )
+
+        # =====================================================================
+        # GRÁFICA
+        # =====================================================================
+
+        if 'corr' in st.session_state:
+
+            fig = go.Figure()
+
+            fig.add_trace(
+                go.Scatter(
+                    y=st.session_state['corr']
+                )
+            )
+
+            st.plotly_chart(
+                fig,
+                width='stretch'
+            )
+
+        # =====================================================================
+        # LIMPIAR
+        # =====================================================================
+
+        if st.button("Limpiar"):
+
+            for k in [
+                'resultado',
+                'estado',
+                'metricas',
+                'corr'
+            ]:
+
+                st.session_state.pop(k, None)

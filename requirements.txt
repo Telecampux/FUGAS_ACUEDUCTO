@@ -1,7 +1,8 @@
-streamlit>=1.27.0
-folium
+streamlit
 streamlit-folium
+folium
 pandas
 numpy
-requests
 plotly
+geopy
+scipy

@@ -1,0 +1,85 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_1",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -74.4754,
+                        5.0113
+                    ],
+                    [
+                        -74.47489999999999,
+                        5.0125
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_2",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -74.47489999999999,
+                        5.0125
+                    ],
+                    [
+                        -74.47439999999999,
+                        5.0137
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "tramo_3",
+                "tipo": "Matriz"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -74.47439999999999,
+                        5.0137
+                    ],
+                    [
+                        -74.4729,
+                        5.0141
+                    ]
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": "secundaria",
+                "tipo": "Rama"
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [
+                        -74.47439999999999,
+                        5.0137
+                    ],
+                    [
+                        -74.47639999999998,
+                        5.0147
+                    ]
+                ]
+            }
+        }
+    ]
+}

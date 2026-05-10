@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "Red_Vial_Bogota_Unico",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "ID_TRAMO": 501, "UBICACION": "Calle 26", "TIPO_RED": "MATRIZ", "DIAM_PULG": 16, "MATERIAL": "ACERO", "ESTADO": "OPERATIVO" }, "geometry": { "type": "LineString", "coordinates": [ [ -74.0745, 4.6135 ], [ -74.0718, 4.6148 ] ] } },
+{ "type": "Feature", "properties": { "ID_TRAMO": 502, "UBICACION": "Calle 28", "TIPO_RED": "SECUNDARIA", "DIAM_PULG": 12, "MATERIAL": "ACERO", "ESTADO": "OPERATIVO" }, "geometry": { "type": "LineString", "coordinates": [ [ -74.0725, 4.6172 ], [ -74.0698, 4.6185 ] ] } },
+{ "type": "Feature", "properties": { "ID_TRAMO": 503, "UBICACION": "Carrera 10", "TIPO_RED": "DISTRIBUCION", "DIAM_PULG": 8, "MATERIAL": "HF", "ESTADO": "OPERATIVO" }, "geometry": { "type": "LineString", "coordinates": [ [ -74.0745, 4.6135 ], [ -74.0725, 4.6172 ] ] } },
+{ "type": "Feature", "properties": { "ID_TRAMO": 504, "UBICACION": "Carrera 13", "TIPO_RED": "DISTRIBUCION", "DIAM_PULG": 6, "MATERIAL": "PVC", "ESTADO": "OPERATIVO" }, "geometry": { "type": "LineString", "coordinates": [ [ -74.0718, 4.6148 ], [ -74.0698, 4.6185 ] ] } },
+{ "type": "Feature", "properties": { "ID_TRAMO": 505, "UBICACION": "Carrera 13", "TIPO_RED": "SECUNDARIA", "DIAM_PULG": 8, "MATERIAL": "HF", "ESTADO": "OPERATIVO" }, "geometry": { "type": "LineString", "coordinates": [ [ -74.0698, 4.6185 ], [ -74.0678, 4.6225 ] ] } }
+]
+}
