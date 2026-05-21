@@ -11,7 +11,7 @@ import scipy.signal as signal
 import streamlit as st
 from streamlit_folium import st_folium
 
-from core.rutas import asegurar_bd_proyectos
+from core.rutas import asegurar_bd_proyectos, asegurar_bd_sensores
 
 # =============================================================================
 # CONFIGURACIÓN GENERAL
@@ -147,6 +147,7 @@ VELOCIDADES_MATERIALES = {
 }
 
 CARPETA = asegurar_bd_proyectos()
+CARPETA_SENSORES = asegurar_bd_sensores()
 
 def es_archivo_cartografico(nombre_archivo):
     extension = os.path.splitext(nombre_archivo)[1].lower()
@@ -401,7 +402,7 @@ with tab_correlacion:
 
                 pd.DataFrame(a).to_csv(
                     os.path.join(
-                        CARPETA,
+                        CARPETA_SENSORES,
                         "sensor_a_simulado.csv"
                     ),
                     index=False,
@@ -410,7 +411,7 @@ with tab_correlacion:
 
                 pd.DataFrame(b).to_csv(
                     os.path.join(
-                        CARPETA,
+                        CARPETA_SENSORES,
                         "sensor_b_simulado.csv"
                     ),
                     index=False,
@@ -429,14 +430,16 @@ with tab_correlacion:
 
             archivos_csv = glob.glob(
                 os.path.join(
-                    CARPETA,
+                    CARPETA_SENSORES,
+                    "**",
                     "*.csv"
-                )
+                ),
+                recursive=True
             )
 
             nombres_csv = [
 
-                os.path.basename(x)
+                os.path.relpath(x, CARPETA_SENSORES)
 
                 for x in archivos_csv
             ]
@@ -460,12 +463,12 @@ with tab_correlacion:
             ):
 
                 ruta_a = os.path.join(
-                    CARPETA,
+                    CARPETA_SENSORES,
                     csv_a
                 )
 
                 ruta_b = os.path.join(
-                    CARPETA,
+                    CARPETA_SENSORES,
                     csv_b
                 )
 

@@ -12,7 +12,7 @@ import streamlit as st
 from shapely.geometry import LineString
 from streamlit_folium import st_folium
 
-from core.rutas import asegurar_bd_proyectos
+from core.rutas import asegurar_bd_proyectos, asegurar_bd_sensores
 
 # =============================================================================
 # CONFIGURACIÓN GENERAL
@@ -49,6 +49,7 @@ if modo_sistema == "Sin cartografía":
     st.stop()
 
 CARPETA = asegurar_bd_proyectos()
+CARPETA_SENSORES = asegurar_bd_sensores()
 
 
 def _leer_json_seguro(ruta):
@@ -327,7 +328,16 @@ def valor_por_campos(datos, campos):
     return None
 
 
-def resolver_ruta_csv(nombre_csv):
+def _nombre_proyecto_desde_archivo(nombre_archivo):
+    if not nombre_archivo:
+        return None
+
+    return os.path.splitext(
+        os.path.basename(str(nombre_archivo).strip())
+    )[0]
+
+
+def resolver_ruta_csv(nombre_csv, proyecto=None):
     if not nombre_csv:
         return None
 
@@ -335,6 +345,26 @@ def resolver_ruta_csv(nombre_csv):
 
     if os.path.isabs(ruta):
         return ruta
+
+    proyecto_base = _nombre_proyecto_desde_archivo(proyecto)
+
+    if proyecto_base:
+        ruta_por_proyecto = os.path.join(
+            CARPETA_SENSORES,
+            proyecto_base,
+            ruta
+        )
+
+        if os.path.exists(ruta_por_proyecto):
+            return ruta_por_proyecto
+
+    ruta_sensores = os.path.join(
+        CARPETA_SENSORES,
+        ruta
+    )
+
+    if os.path.exists(ruta_sensores):
+        return ruta_sensores
 
     return os.path.join(
         CARPETA,
@@ -355,7 +385,7 @@ def leer_senal_csv(ruta, modificado):
     ).dropna().values
 
 
-def cargar_senales_desde_tramo(fila_tramo):
+def cargar_senales_desde_tramo(fila_tramo, proyecto=None):
     csv_a = fila_tramo.get("CSV_A")
     csv_b = fila_tramo.get("CSV_B")
 
@@ -364,8 +394,8 @@ def cargar_senales_desde_tramo(fila_tramo):
             "El tramo debe incluir los campos CSV_A y CSV_B en el GeoJSON."
         )
 
-    ruta_a = resolver_ruta_csv(csv_a)
-    ruta_b = resolver_ruta_csv(csv_b)
+    ruta_a = resolver_ruta_csv(csv_a, proyecto)
+    ruta_b = resolver_ruta_csv(csv_b, proyecto)
 
     faltantes = [
         ruta for ruta in (ruta_a, ruta_b)
@@ -886,7 +916,8 @@ with tab_correlacion:
 
         try:
             senales = cargar_senales_desde_tramo(
-                fila_tramo
+                fila_tramo,
+                json_sel
             )
         except (ValueError, FileNotFoundError, OSError) as error:
             st.session_state.pop("a", None)
@@ -894,7 +925,7 @@ with tab_correlacion:
             st.error(str(error))
             st.info(
                 "Agregue al GeoJSON del tramo las propiedades CSV_A y CSV_B "
-                "con nombres de archivos ubicados en BD_PROYECTOS, por ejemplo "
+                "con nombres de archivos ubicados en BD_SENSORES/proyecto, por ejemplo "
                 "sensor_a_bogota.csv y sensor_b_bogota.csv."
             )
         else:

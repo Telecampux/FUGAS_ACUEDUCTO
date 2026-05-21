@@ -5,13 +5,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core.rutas import asegurar_bd_proyectos
+from core.rutas import asegurar_bd_sensores
 
 # =============================================================================
 # CARPETA
 # =============================================================================
 
-CARPETA = asegurar_bd_proyectos()
+CARPETA = asegurar_bd_sensores()
 
 # =============================================================================
 # GENERACIÓN / CARGA SEÑALES
@@ -229,13 +229,15 @@ def generar_senales():
         archivos_csv = glob.glob(
             os.path.join(
                 CARPETA,
+                "**",
                 "*.csv"
-            )
+            ),
+            recursive=True
         )
 
         nombres_csv = [
 
-            os.path.basename(x)
+            os.path.relpath(x, CARPETA)
 
             for x in archivos_csv
         ]
