@@ -1,5 +1,4 @@
 import os
-import glob
 import json
 import runpy
 
@@ -67,7 +66,7 @@ def _leer_json_seguro(ruta):
 def es_archivo_cartografico(nombre_archivo):
     extension = os.path.splitext(nombre_archivo)[1].lower()
 
-    if extension not in (".json", ".geojson"):
+    if extension != ".geojson":
         return False
 
     contenido = _leer_json_seguro(
@@ -86,13 +85,7 @@ def es_archivo_cartografico(nombre_archivo):
     ):
         return True
 
-    return (
-        "proyecto" in contenido
-        and
-        "puntos" in contenido
-        and
-        "conexiones" in contenido
-    )
+    return False
 
 
 def listar_cartografias_disponibles():
@@ -164,6 +157,13 @@ def _gdf_desde_proyecto(contenido):
 
 
 def cargar_gdf_cartografia(nombre_archivo):
+    extension = os.path.splitext(nombre_archivo)[1].lower()
+
+    if extension != ".geojson":
+        raise ValueError(
+            "Para geolocalizar fugas debe cargar una red en formato GeoJSON (.geojson)"
+        )
+
     ruta = os.path.join(
         CARPETA,
         nombre_archivo
@@ -180,7 +180,9 @@ def cargar_gdf_cartografia(nombre_archivo):
     ):
         return gpd.read_file(ruta).to_crs(epsg=4326)
 
-    return _gdf_desde_proyecto(contenido).to_crs(epsg=4326)
+    raise ValueError(
+        "El archivo seleccionado no es un GeoJSON valido"
+    )
 
 
 def obtener_coordenadas_extremos(geometria):
@@ -195,6 +197,265 @@ def obtener_coordenadas_extremos(geometria):
     raise ValueError(
         "La cartografia debe contener geometria de linea"
     )
+
+
+def crear_tabla_conexiones(gdf):
+    gdf_m = gdf.to_crs(epsg=3116)
+    registros = []
+
+    for posicion, (_, fila) in enumerate(gdf.iterrows()):
+        geometria = fila.geometry
+
+        if (
+            geometria is None
+            or
+            geometria.is_empty
+            or
+            geometria.geom_type not in (
+                "LineString",
+                "MultiLineString"
+            )
+        ):
+            continue
+
+        datos = fila.drop(labels=["geometry"]).to_dict()
+
+        origen = datos.get("origen") or datos.get("ORIGEN")
+        destino = datos.get("destino") or datos.get("DESTINO")
+        csv_a = valor_por_campos(
+            datos,
+            CAMPOS_CSV_SENSOR_A
+        )
+        csv_b = valor_por_campos(
+            datos,
+            CAMPOS_CSV_SENSOR_B
+        )
+        ubicacion = (
+            datos.get("UBICACION")
+            or
+            datos.get("ubicacion")
+        )
+
+        if not ubicacion and origen and destino:
+            ubicacion = f"{origen} - {destino}"
+
+        registros.append(
+            {
+                "_posicion_gdf": posicion,
+                "ID_TRAMO": (
+                    datos.get("ID_TRAMO")
+                    or
+                    datos.get("id_tramo")
+                    or
+                    datos.get("id")
+                    or
+                    posicion + 1
+                ),
+                "UBICACION": ubicacion or f"Tramo {posicion + 1}",
+                "TIPO_RED": (
+                    datos.get("TIPO_RED")
+                    or
+                    datos.get("tipo_red")
+                    or
+                    "Sin dato"
+                ),
+                "DIAM_PULG": (
+                    datos.get("DIAM_PULG")
+                    or
+                    datos.get("diam_pulg")
+                    or
+                    datos.get("diametro")
+                    or
+                    "Sin dato"
+                ),
+                "MATERIAL": (
+                    datos.get("MATERIAL")
+                    or
+                    datos.get("material")
+                    or
+                    "Desconocido"
+                ),
+                "ESTADO": (
+                    datos.get("ESTADO")
+                    or
+                    datos.get("estado")
+                    or
+                    "Sin dato"
+                ),
+                "CSV_A": csv_a,
+                "CSV_B": csv_b,
+                "LONG_M": round(
+                    gdf_m.geometry.iloc[posicion].length,
+                    2
+                )
+            }
+        )
+
+    return pd.DataFrame(registros)
+
+
+CAMPOS_CSV_SENSOR_A = (
+    "CSV_A",
+    "csv_a",
+    "SENSOR_A_CSV",
+    "sensor_a_csv",
+    "CSV_SENSOR_A",
+    "csv_sensor_a",
+    "ARCHIVO_SENSOR_A",
+    "archivo_sensor_a"
+)
+
+CAMPOS_CSV_SENSOR_B = (
+    "CSV_B",
+    "csv_b",
+    "SENSOR_B_CSV",
+    "sensor_b_csv",
+    "CSV_SENSOR_B",
+    "csv_sensor_b",
+    "ARCHIVO_SENSOR_B",
+    "archivo_sensor_b"
+)
+
+
+def valor_por_campos(datos, campos):
+    for campo in campos:
+        valor = datos.get(campo)
+
+        if valor is not None and str(valor).strip():
+            return str(valor).strip()
+
+    return None
+
+
+def resolver_ruta_csv(nombre_csv):
+    if not nombre_csv:
+        return None
+
+    ruta = str(nombre_csv).strip()
+
+    if os.path.isabs(ruta):
+        return ruta
+
+    return os.path.join(
+        CARPETA,
+        ruta
+    )
+
+
+@st.cache_data(show_spinner=False)
+def leer_senal_csv(ruta, modificado):
+    df = pd.read_csv(
+        ruta,
+        header=None
+    )
+
+    return pd.to_numeric(
+        df.iloc[:, 0],
+        errors="coerce"
+    ).dropna().values
+
+
+def cargar_senales_desde_tramo(fila_tramo):
+    csv_a = fila_tramo.get("CSV_A")
+    csv_b = fila_tramo.get("CSV_B")
+
+    if not csv_a or not csv_b:
+        raise ValueError(
+            "El tramo debe incluir los campos CSV_A y CSV_B en el GeoJSON."
+        )
+
+    ruta_a = resolver_ruta_csv(csv_a)
+    ruta_b = resolver_ruta_csv(csv_b)
+
+    faltantes = [
+        ruta for ruta in (ruta_a, ruta_b)
+        if not ruta or not os.path.exists(ruta)
+    ]
+
+    if faltantes:
+        raise FileNotFoundError(
+            "No se encontraron estos CSV: "
+            + ", ".join(faltantes)
+        )
+
+    xa = leer_senal_csv(
+        ruta_a,
+        os.path.getmtime(ruta_a)
+    )
+    xb = leer_senal_csv(
+        ruta_b,
+        os.path.getmtime(ruta_b)
+    )
+
+    n_min = min(
+        len(xa),
+        len(xb)
+    )
+
+    if n_min == 0:
+        raise ValueError(
+            "Los CSV del tramo no contienen muestras numericas validas."
+        )
+
+    return {
+        "csv_a": csv_a,
+        "csv_b": csv_b,
+        "ruta_a": ruta_a,
+        "ruta_b": ruta_b,
+        "muestras_a": len(xa),
+        "muestras_b": len(xb),
+        "muestras_sincronizadas": n_min,
+        "a": xa[:n_min],
+        "b": xb[:n_min]
+    }
+
+
+def material_para_analisis(material):
+    material_normalizado = str(
+        material or ""
+    ).strip().upper()
+
+    if material_normalizado in (
+        "HF",
+        "HIERRO",
+        "HIERRO DUCTIL"
+    ) or material_normalizado.startswith("HIERRO "):
+        return "Hierro"
+
+    equivalencias = {
+        "PVC": "PVC",
+        "PEAD": "PEAD",
+        "HF": "Hierro dÃºctil",
+        "HIERRO": "Hierro dÃºctil",
+        "HIERRO DUCTIL": "Hierro dÃºctil",
+        "HIERRO DÃšCTIL": "Hierro dÃºctil",
+        "AC": "Asbesto cemento",
+        "ASBESTO CEMENTO": "Asbesto cemento"
+    }
+
+    return equivalencias.get(
+        material_normalizado,
+        "Desconocido"
+    )
+
+
+def limpiar_resultados_tramo():
+    for key in (
+        "resultado_generado",
+        "estado",
+        "x_fuga",
+        "lat_fuga",
+        "lon_fuga",
+        "rho",
+        "snr",
+        "thr_rho_auto",
+        "thr_snr_auto",
+        "confidence",
+        "corr"
+    ):
+        st.session_state.pop(key, None)
+
+    st.session_state["resultado_generado"] = False
 
 
 archivos_cartografia = listar_cartografias_disponibles()
@@ -323,6 +584,7 @@ def refine_peak(corr, lags, idx, fs):
 VELOCIDADES_MATERIALES = {
     "PVC": 400,
     "PEAD": 300,
+    "Hierro": 1000,
     "Hierro dúctil": 1000,
     "Asbesto cemento": 600,
     "Desconocido": 500
@@ -333,10 +595,7 @@ CARPETA = asegurar_bd_proyectos()
 def es_archivo_cartografico_obsoleto(nombre_archivo):
     extension = os.path.splitext(nombre_archivo)[1].lower()
 
-    if extension == ".geojson":
-        return True
-
-    if extension != ".json":
+    if extension != ".geojson":
         return False
 
     ruta = os.path.join(
@@ -354,7 +613,7 @@ def es_archivo_cartografico_obsoleto(nombre_archivo):
     except (OSError, json.JSONDecodeError):
         return False
 
-    return contenido.get("type") in (
+    return isinstance(contenido, dict) and contenido.get("type") in (
         "FeatureCollection",
         "Feature"
     )
@@ -430,16 +689,85 @@ with tab_correlacion:
             )
             st.stop()
 
+        tabla_conexiones = crear_tabla_conexiones(
+            gdf_p
+        )
+
+        if len(tabla_conexiones) == 0:
+            st.error(
+                "La cartografia no contiene tramos de linea validos"
+            )
+            st.stop()
+
+        st.subheader(
+            "Conexiones disponibles"
+        )
+
+        st.dataframe(
+            tabla_conexiones.drop(
+                columns=["_posicion_gdf"]
+            ),
+            width="stretch",
+            hide_index=True
+        )
+
+        opciones_tramo = [
+            (
+                f"{indice + 1}. "
+                f"{fila['ID_TRAMO']} - "
+                f"{fila['UBICACION']} "
+                f"({fila['LONG_M']} m)"
+            )
+            for indice, fila in tabla_conexiones.iterrows()
+        ]
+
+        tramo_opcion = st.selectbox(
+            "Seleccione tramo para analizar",
+            opciones_tramo,
+            key=f"tramo_selector_{json_sel}"
+        )
+
+        tramo_sel = opciones_tramo.index(
+            tramo_opcion
+        )
+
+        fila_tramo = tabla_conexiones.loc[tramo_sel]
+        posicion_tramo = int(
+            fila_tramo["_posicion_gdf"]
+        )
+
+        tramo_actual = (
+            f"{json_sel}::{posicion_tramo}"
+        )
+        material_tramo = material_para_analisis(
+            fila_tramo["MATERIAL"]
+        )
+
+        if (
+            st.session_state.get("tramo_actual")
+            != tramo_actual
+        ):
+            limpiar_resultados_tramo()
+            st.session_state["material_parametros"] = material_tramo
+
+        st.session_state["tramo_actual"] = tramo_actual
+
+        gdf_tramo_p = gdf_p.iloc[
+            [posicion_tramo]
+        ].copy()
+
         gdf_m = gdf_p.to_crs(
             epsg=3116
         )
 
-        linea = gdf_m.geometry.iloc[0]
+        linea = gdf_m.geometry.iloc[
+            posicion_tramo
+        ]
 
         L = linea.length
 
         coords = obtener_coordenadas_extremos(
-            gdf_p.geometry.iloc[0]
+            gdf_p.geometry.iloc[posicion_tramo]
         )
 
         pos_a = [
@@ -456,7 +784,28 @@ with tab_correlacion:
         st.session_state['L'] = L
         st.session_state['pos_a'] = pos_a
         st.session_state['pos_b'] = pos_b
-        st.session_state['red'] = gdf_p
+        st.session_state['red'] = gdf_tramo_p
+        st.session_state['red_completa'] = gdf_p
+        st.session_state['tramo_info'] = fila_tramo.to_dict()
+        st.session_state['material_tramo'] = material_tramo
+
+        c_info1, c_info2, c_info3, c_info4 = st.columns(4)
+        c_info1.metric(
+            "Longitud tramo",
+            f"{L:.2f} m"
+        )
+        c_info2.metric(
+            "Material",
+            fila_tramo["MATERIAL"]
+        )
+        c_info3.metric(
+            "Diametro",
+            fila_tramo["DIAM_PULG"]
+        )
+        c_info4.metric(
+            "Estado",
+            fila_tramo["ESTADO"]
+        )
 
     # =========================================================================
     # CONTINUAR
@@ -470,12 +819,29 @@ with tab_correlacion:
 
         c1, c2, c3 = st.columns(3)
 
+        material_sugerido = st.session_state.get(
+            "material_tramo",
+            "Desconocido"
+        )
+        materiales_disponibles = list(
+            VELOCIDADES_MATERIALES.keys()
+        )
+
+        if material_sugerido not in materiales_disponibles:
+            material_sugerido = "Desconocido"
+
         material = c1.selectbox(
             "Material",
-            list(
-                VELOCIDADES_MATERIALES.keys()
+            materiales_disponibles,
+            index=materiales_disponibles.index(
+                material_sugerido
+            ),
+            key=(
+                "material_parametros_widget_"
+                f"{st.session_state.get('tramo_actual', 'sin_tramo')}"
             )
         )
+        st.session_state["material_parametros"] = material
 
         v_default = (
             VELOCIDADES_MATERIALES[material]
@@ -515,228 +881,67 @@ with tab_correlacion:
         # =====================================================================
 
         st.subheader(
-            "2. Entrada"
+            "2. CSV del tramo"
         )
 
-        modo = st.radio(
-            "Modo",
-            [
-                "Simulación",
-                "CSV"
-            ]
-        )
-
-        # =====================================================================
-        # SIMULACIÓN
-        # =====================================================================
-
-        if modo == "Simulación":
-
-            dur = st.slider(
-                "Tiempo de toma de muestra sensores (s)",
-                1,
-                10,
-                5
+        try:
+            senales = cargar_senales_desde_tramo(
+                fila_tramo
             )
-
-            tipo = st.selectbox(
-                "Escenario",
-                [
-                    "Correlacionado",
-                    "Ruido"
-                ]
+        except (ValueError, FileNotFoundError, OSError) as error:
+            st.session_state.pop("a", None)
+            st.session_state.pop("b", None)
+            st.error(str(error))
+            st.info(
+                "Agregue al GeoJSON del tramo las propiedades CSV_A y CSV_B "
+                "con nombres de archivos ubicados en BD_PROYECTOS, por ejemplo "
+                "sensor_a_bogota.csv y sensor_b_bogota.csv."
             )
-
-            if st.button(
-                "Generar señales"
-            ):
-
-                t = np.linspace(
-                    0,
-                    dur,
-                    int(fs * dur)
-                )
-
-                base = np.random.normal(
-                    0,
-                    1,
-                    len(t)
-                )
-
-                if tipo == "Correlacionado":
-
-                    delay = np.random.randint(
-                        -int(0.01 * fs),
-                        int(0.01 * fs)
-                    )
-
-                    a = base
-
-                    b = np.roll(
-                        base,
-                        delay
-                    )
-
-                else:
-
-                    a = np.random.normal(
-                        0,
-                        1,
-                        len(t)
-                    )
-
-                    b = np.random.normal(
-                        0,
-                        1,
-                        len(t)
-                    )
-
-                a += np.random.normal(
-                    0,
-                    0.3,
-                    len(t)
-                )
-
-                b += np.random.normal(
-                    0,
-                    0.3,
-                    len(t)
-                )
-
-                st.session_state['a'] = a
-                st.session_state['b'] = b
-
-                pd.DataFrame(a).to_csv(
-                    os.path.join(
-                        CARPETA,
-                        "sensor_a_simulado.csv"
-                    ),
-                    index=False,
-                    header=False
-                )
-
-                pd.DataFrame(b).to_csv(
-                    os.path.join(
-                        CARPETA,
-                        "sensor_b_simulado.csv"
-                    ),
-                    index=False,
-                    header=False
-                )
-
-                st.success(
-                    "Señales simuladas y CSV generados"
-                )
-
-        # =====================================================================
-        # CSV
-        # =====================================================================
-
         else:
+            st.session_state["a"] = senales["a"]
+            st.session_state["b"] = senales["b"]
 
-            archivos_csv = glob.glob(
-                os.path.join(
-                    CARPETA,
-                    "*.csv"
-                )
-            )
-
-            nombres_csv = [
-
-                os.path.basename(x)
-
-                for x in archivos_csv
-            ]
-
-            col1, col2 = st.columns(2)
-
-            csv_a = col1.selectbox(
+            c_csv1, c_csv2, c_csv3 = st.columns(3)
+            c_csv1.metric(
                 "Sensor A",
-                nombres_csv,
-                key="csv_a"
+                senales["csv_a"]
             )
-
-            csv_b = col2.selectbox(
+            c_csv2.metric(
                 "Sensor B",
-                nombres_csv,
-                key="csv_b"
+                senales["csv_b"]
+            )
+            c_csv3.metric(
+                "Muestras sincronizadas",
+                senales["muestras_sincronizadas"]
             )
 
-            if st.button(
-                "Cargar CSV"
-            ):
-
-                ruta_a = os.path.join(
-                    CARPETA,
-                    csv_a
+            if senales["muestras_a"] != senales["muestras_b"]:
+                st.warning(
+                    "Los sensores tienen diferente cantidad de muestras. "
+                    "El sistema usara la longitud minima comun."
                 )
 
-                ruta_b = os.path.join(
-                    CARPETA,
-                    csv_b
-                )
+            muestras_vista = min(
+                20,
+                senales["muestras_sincronizadas"]
+            )
+            vista_csv = pd.DataFrame(
+                {
+                    "Muestra": np.arange(muestras_vista),
+                    "Sensor A": senales["a"][:muestras_vista],
+                    "Sensor B": senales["b"][:muestras_vista]
+                }
+            )
 
-                df_a = pd.read_csv(
-                    ruta_a,
-                    header=None
-                )
+            st.dataframe(
+                vista_csv,
+                width="stretch",
+                hide_index=True
+            )
 
-                df_b = pd.read_csv(
-                    ruta_b,
-                    header=None
-                )
-
-                xa = pd.to_numeric(
-                    df_a.iloc[:, 0],
-                    errors='coerce'
-                ).dropna().values
-
-                xb = pd.to_numeric(
-                    df_b.iloc[:, 0],
-                    errors='coerce'
-                ).dropna().values
-
-                n_a = len(xa)
-                n_b = len(xb)
-
-                if n_a != n_b:
-
-                    st.warning(
-                        f"""
-                        Los sensores tienen diferente cantidad de muestras.
-
-                        Sensor A:
-                        {n_a}
-
-                        Sensor B:
-                        {n_b}
-
-                        El sistema sincronizará automáticamente
-                        usando la longitud mínima común.
-                        """
-                    )
-
-                n_min = min(
-                    n_a,
-                    n_b
-                )
-
-                xa = xa[:n_min]
-                xb = xb[:n_min]
-
-                st.info(
-                    f"""
-                    Muestras sincronizadas:
-                    {n_min}
-                    """
-                )
-
-                st.session_state['a'] = xa
-                st.session_state['b'] = xb
-
-                st.success(
-                    "CSV cargados correctamente"
-                )
+            st.success(
+                "CSV cargados desde el tramo seleccionado"
+            )
 
         # =====================================================================
         # CORRELACIÓN

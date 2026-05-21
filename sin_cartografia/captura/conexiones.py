@@ -1,6 +1,22 @@
 # =============================================================================
 # CONEXIONES - SIN CARTOGRAFÍA
 # =============================================================================
+TIPOS_TUBERIA = [
+    "DISTRIBUCION",
+    "ADUCCION",
+    "CONDUCCION",
+    "IMPULSION",
+    "ACOMETIDA",
+    "OTRO"
+]
+
+MATERIALES_TUBERIA = [
+    "PVC",
+    "PEAD",
+    "Hierro",
+    "Asbesto Cemento",
+    "Otro"
+]
 
 
 def registrar_conexion(
@@ -8,7 +24,8 @@ def registrar_conexion(
     destino,
     distancia,
     diametro,
-    material
+    material,
+    tipo_red="DISTRIBUCION"
 ):
     if not origen or not destino:
         raise ValueError("Debe seleccionar nodo origen y nodo destino")
@@ -31,7 +48,9 @@ def registrar_conexion(
 
         "diametro": diametro,
 
-        "material": material
+        "material": material,
+
+        "tipo_red": tipo_red
     }
 
     return conexion

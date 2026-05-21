@@ -7,6 +7,8 @@ from sin_cartografia.captura.captura_puntos import (
 )
 
 from sin_cartografia.captura.conexiones import (
+    MATERIALES_TUBERIA,
+    TIPOS_TUBERIA,
     registrar_conexion
 )
 
@@ -291,49 +293,59 @@ if menu == "Conexiones":
         destino = st.selectbox(
             "Destino",
             nombres,
+            index=1,
             key="destino"
         )
 
         distancia = st.number_input(
             "Distancia (m)",
-            min_value=0.0
+            min_value=0.0,
+            key="conexion_distancia"
         )
 
         diametro = st.number_input(
             "Diámetro (mm)",
-            min_value=0.0
+            min_value=0.0,
+            key="conexion_diametro"
         )
 
         material = st.selectbox(
             "Material",
-            [
-                "PVC",
-                "PEAD",
-                "Hierro",
-                "Asbesto Cemento",
-                "Otro"
-            ]
+            MATERIALES_TUBERIA,
+            key="conexion_material"
+        )
+
+        tipo_tuberia = st.selectbox(
+            "Tipo de tuberia",
+            TIPOS_TUBERIA,
+            key="conexion_tipo_tuberia"
         )
 
         if st.button(
             "Registrar conexión"
         ):
 
-            conexion = registrar_conexion(
-                origen=origen,
-                destino=destino,
-                distancia=distancia,
-                diametro=diametro,
-                material=material
-            )
+            try:
+                conexion = registrar_conexion(
+                    origen=origen,
+                    destino=destino,
+                    distancia=distancia,
+                    diametro=diametro,
+                    material=material,
+                    tipo_red=tipo_tuberia
+                )
+            except ValueError as error:
+                st.error(str(error))
+                conexion = None
 
-            st.session_state["conexiones"].append(
-                conexion
-            )
+            if conexion is not None:
+                st.session_state["conexiones"].append(
+                    conexion
+                )
 
-            st.success(
-                "Conexión registrada"
-            )
+                st.success(
+                    "Conexión registrada"
+                )
 
     else:
 

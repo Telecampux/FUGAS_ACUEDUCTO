@@ -1,28 +1,28 @@
 {
     "proyecto": {
-        "nombre": "ACUEDUCTO EL NARANJAL",
+        "nombre": "proyecto plaza",
         "municipio": "Bogotá",
         "departamento": "Bogotá, Distrito Capital",
         "pais": "Colombia",
-        "operador": "EPPN",
-        "descripcion": "ESTE PROYECTO ES PARA PRUEBAS",
+        "operador": "adolfo",
+        "descripcion": "prueba",
         "gps": {
-            "lat": 4.75867741589903,
-            "lon": -74.09634787935158,
+            "lat": 4.758697431333574,
+            "lon": -74.09634939194072,
             "alt": null,
             "altimetria": 2553.0,
             "altitud": 2553.0,
-            "precision": 91.0,
+            "precision": 85.0,
             "estado": "GPS_REAL",
-            "timestamp": 1779376677188,
+            "timestamp": 1779395129815,
             "municipio": "Bogotá",
             "departamento": "Bogotá, Distrito Capital",
             "pais": "Colombia",
             "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
             "ubicacion_estado": "OK"
         },
-        "latitud": 4.75867741589903,
-        "longitud": -74.09634787935158,
+        "latitud": 4.758697431333574,
+        "longitud": -74.09634939194072,
         "altimetria": 2553.0,
         "altitud": 2553.0,
         "municipio_gps": "Bogotá",
@@ -32,12 +32,12 @@
     },
     "puntos": [
         {
-            "nombre": "Tanque de salida",
+            "nombre": "tanque",
             "tipo": "Tanque",
-            "descripcion": "Tanque de inicio de aduccion",
+            "descripcion": "tanque",
             "gps": {
-                "lat": 4.758722527169505,
-                "lon": -74.09634211088581,
+                "lat": 4.758634950078926,
+                "lon": -74.09636972252368,
                 "alt": null,
                 "altimetria": 2553.0,
                 "precision": 88.0,
@@ -48,8 +48,8 @@
                 "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
                 "ubicacion_estado": "OK"
             },
-            "latitud": 4.758722527169505,
-            "longitud": -74.09634211088581,
+            "latitud": 4.758634950078926,
+            "longitud": -74.09636972252368,
             "altimetria": 2553.0,
             "altitud": 2553.0,
             "municipio": "Bogotá",
@@ -59,15 +59,15 @@
             "foto": null
         },
         {
-            "nombre": "Sencor caudal de salida",
+            "nombre": "sensor",
             "tipo": "Sensor",
-            "descripcion": "Sensor caulda de salida",
+            "descripcion": "sensor",
             "gps": {
-                "lat": 4.758617999419472,
-                "lon": -74.09635250331729,
+                "lat": 4.75872919420876,
+                "lon": -74.0963036293903,
                 "alt": null,
                 "altimetria": 2553.0,
-                "precision": 92.0,
+                "precision": 88.0,
                 "estado": "GPS_REAL",
                 "municipio": "Bogotá",
                 "departamento": "Bogotá, Distrito Capital",
@@ -75,8 +75,8 @@
                 "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
                 "ubicacion_estado": "OK"
             },
-            "latitud": 4.758617999419472,
-            "longitud": -74.09635250331729,
+            "latitud": 4.75872919420876,
+            "longitud": -74.0963036293903,
             "altimetria": 2553.0,
             "altitud": 2553.0,
             "municipio": "Bogotá",
@@ -88,11 +88,12 @@
     ],
     "conexiones": [
         {
-            "origen": "Tanque de salida",
-            "destino": "Sencor caudal de salida",
+            "origen": "tanque",
+            "destino": "sensor",
             "distancia": 100.0,
-            "diametro": 50.0,
+            "diametro": 100.0,
             "material": "Hierro",
+            "tipo_red": "ADUCCION",
             "CSV_A": "sensor_a_bogota.csv",
             "CSV_B": "sensor_b_bogota.csv"
         }

@@ -1,6 +1,6 @@
 {
     "type": "FeatureCollection",
-    "name": "ACUEDUCTO EL NARANJAL",
+    "name": "proyecto plaza",
     "crs": {
         "type": "name",
         "properties": {
@@ -12,9 +12,9 @@
             "type": "Feature",
             "properties": {
                 "ID_TRAMO": 1,
-                "UBICACION": "Tanque de salida - Sencor caudal de salida",
-                "TIPO_RED": "DISTRIBUCION",
-                "DIAM_PULG": 1.97,
+                "UBICACION": "tanque - sensor",
+                "TIPO_RED": "ADUCCION",
+                "DIAM_PULG": 3.94,
                 "MATERIAL": "HF",
                 "ESTADO": "OPERATIVO",
                 "CSV_A": "sensor_a_bogota.csv",
@@ -24,12 +24,12 @@
                 "type": "LineString",
                 "coordinates": [
                     [
-                        -74.09634211088581,
-                        4.758722527169505
+                        -74.09636972252368,
+                        4.758634950078926
                     ],
                     [
-                        -74.09635250331729,
-                        4.758617999419472
+                        -74.0963036293903,
+                        4.75872919420876
                     ]
                 ]
             }

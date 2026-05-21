@@ -1,5 +1,4 @@
 import os
-import json
 import geopandas as gpd
 import streamlit as st
 
@@ -19,26 +18,7 @@ def cargar_red_gis():
     def es_archivo_cartografico(nombre_archivo):
         extension = os.path.splitext(nombre_archivo)[1].lower()
 
-        if extension == ".geojson":
-            return True
-
-        if extension != ".json":
-            return False
-
-        try:
-            with open(
-                os.path.join(CARPETA, nombre_archivo),
-                "r",
-                encoding="utf-8"
-            ) as archivo:
-                contenido = json.load(archivo)
-        except (OSError, json.JSONDecodeError):
-            return False
-
-        return contenido.get("type") in (
-            "FeatureCollection",
-            "Feature"
-        )
+        return extension == ".geojson"
 
     archivos_json = [
 

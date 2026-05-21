@@ -151,31 +151,7 @@ CARPETA = asegurar_bd_proyectos()
 def es_archivo_cartografico(nombre_archivo):
     extension = os.path.splitext(nombre_archivo)[1].lower()
 
-    if extension == ".geojson":
-        return True
-
-    if extension != ".json":
-        return False
-
-    ruta = os.path.join(
-        CARPETA,
-        nombre_archivo
-    )
-
-    try:
-        with open(
-            ruta,
-            "r",
-            encoding="utf-8"
-        ) as archivo:
-            contenido = json.load(archivo)
-    except (OSError, json.JSONDecodeError):
-        return False
-
-    return contenido.get("type") in (
-        "FeatureCollection",
-        "Feature"
-    )
+    return extension == ".geojson"
 
 if "resultado_generado" not in st.session_state:
 

@@ -127,7 +127,13 @@ def construir_geojson(
                     "ESTADO": conexion.get(
                         "estado",
                         "OPERATIVO"
-                    )
+                    ),
+                    "CSV_A": conexion.get("CSV_A")
+                    or conexion.get("csv_a")
+                    or conexion.get("sensor_a_csv"),
+                    "CSV_B": conexion.get("CSV_B")
+                    or conexion.get("csv_b")
+                    or conexion.get("sensor_b_csv")
                 },
                 "geometry": {
                     "type": "LineString",

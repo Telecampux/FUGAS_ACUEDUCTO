@@ -4,7 +4,11 @@ import json
 
 from sin_cartografia.captura.gps import obtener_gps, calcular_altimetria
 from sin_cartografia.captura.captura_puntos import mostrar_formulario_nodo
-from sin_cartografia.captura.conexiones import registrar_conexion
+from sin_cartografia.captura.conexiones import (
+    MATERIALES_TUBERIA,
+    TIPOS_TUBERIA,
+    registrar_conexion
+)
 from sin_cartografia.validacion.topologia import validar_topologia
 from sin_cartografia.almacenamiento.persistencia import (
     guardar_proyecto,
@@ -232,13 +236,7 @@ def administrar_conexiones(nombres):
         key=f"editar_conexion_diametro_{indice}"
     )
 
-    materiales = [
-        "PVC",
-        "PEAD",
-        "Hierro",
-        "Asbesto Cemento",
-        "Otro"
-    ]
+    materiales = list(MATERIALES_TUBERIA)
 
     material_actual = conexion.get("material", materiales[0])
 
@@ -250,6 +248,19 @@ def administrar_conexiones(nombres):
         materiales,
         index=materiales.index(material_actual),
         key=f"editar_conexion_material_{indice}"
+    )
+
+    tipos_tuberia = list(TIPOS_TUBERIA)
+    tipo_tuberia_actual = conexion.get("tipo_red", tipos_tuberia[0])
+
+    if tipo_tuberia_actual not in tipos_tuberia:
+        tipos_tuberia.append(tipo_tuberia_actual)
+
+    nuevo_tipo_tuberia = st.selectbox(
+        "Tipo de tuberia",
+        tipos_tuberia,
+        index=tipos_tuberia.index(tipo_tuberia_actual),
+        key=f"editar_conexion_tipo_tuberia_{indice}"
     )
 
     col1, col2 = st.columns(2)
@@ -264,7 +275,8 @@ def administrar_conexiones(nombres):
                 destino=nuevo_destino,
                 distancia=nueva_distancia,
                 diametro=nuevo_diametro,
-                material=nuevo_material
+                material=nuevo_material,
+                tipo_red=nuevo_tipo_tuberia
             )
 
             st.success("Conexion actualizada")
@@ -646,7 +658,8 @@ def consultar_proyecto_cargado():
                 "destino",
                 "distancia",
                 "diametro",
-                "material"
+                "material",
+                "tipo_red"
             ]
         )
 
@@ -973,32 +986,37 @@ if menu == "Conexiones":
         destino = st.selectbox(
             "Destino",
             nombres,
+            index=1,
             key="destino"
         )
 
         distancia = st.number_input(
             "Distancia (m)",
-            min_value=0.0
+            min_value=0.0,
+            key="conexion_distancia"
         )
 
         diametro = st.number_input(
             "Diametro (mm)",
-            min_value=0.0
+            min_value=0.0,
+            key="conexion_diametro"
         )
 
         material = st.selectbox(
             "Material",
-            [
-                "PVC",
-                "PEAD",
-                "Hierro",
-                "Asbesto Cemento",
-                "Otro"
-            ]
+            MATERIALES_TUBERIA,
+            key="conexion_material"
+        )
+
+        tipo_tuberia = st.selectbox(
+            "Tipo de tuberia",
+            TIPOS_TUBERIA,
+            key="conexion_tipo_tuberia"
         )
 
         if st.button(
-            "Registrar conexion"
+            "Registrar conexion",
+            key="registrar_conexion"
         ):
 
             try:
@@ -1008,7 +1026,8 @@ if menu == "Conexiones":
                     destino=destino,
                     distancia=distancia,
                     diametro=diametro,
-                    material=material
+                    material=material,
+                    tipo_red=tipo_tuberia
                 )
 
                 st.session_state["conexiones"].append(

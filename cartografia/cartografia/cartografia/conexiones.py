@@ -5,6 +5,23 @@
 
 import streamlit as st
 
+TIPOS_TUBERIA = [
+    "DISTRIBUCION",
+    "ADUCCION",
+    "CONDUCCION",
+    "IMPULSION",
+    "ACOMETIDA",
+    "OTRO"
+]
+
+MATERIALES_TUBERIA = [
+    "PVC",
+    "PEAD",
+    "Hierro",
+    "Asbesto Cemento",
+    "Otro"
+]
+
 # ============================================================
 # CONEXION ENTRE PUNTOS
 # ============================================================
@@ -70,9 +87,23 @@ def conectar_puntos():
 
             nombres,
 
+            index=1,
+
             key="destino_conexion"
 
         )
+
+    tipo_tuberia = st.selectbox(
+        "Tipo de tuberia",
+        TIPOS_TUBERIA,
+        key="tipo_tuberia_conexion"
+    )
+
+    material = st.selectbox(
+        "Material de tuberia",
+        MATERIALES_TUBERIA,
+        key="material_tuberia_conexion"
+    )
 
     if st.button(
 
@@ -84,7 +115,11 @@ def conectar_puntos():
 
             "origen": origen,
 
-            "destino": destino
+            "destino": destino,
+
+            "material": material,
+
+            "tipo_red": tipo_tuberia
 
         }
 
