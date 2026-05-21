@@ -1,0 +1,98 @@
+{
+    "proyecto": {
+        "nombre": "ACUEDUCTO EL NARANJAL",
+        "municipio": "Bogotá",
+        "departamento": "Bogotá, Distrito Capital",
+        "pais": "Colombia",
+        "operador": "EPPN",
+        "descripcion": "ESTE PROYECTO ES PARA PRUEBAS",
+        "gps": {
+            "lat": 4.75867741589903,
+            "lon": -74.09634787935158,
+            "alt": null,
+            "altimetria": 2553.0,
+            "altitud": 2553.0,
+            "precision": 91.0,
+            "estado": "GPS_REAL",
+            "timestamp": 1779376677188,
+            "municipio": "Bogotá",
+            "departamento": "Bogotá, Distrito Capital",
+            "pais": "Colombia",
+            "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
+            "ubicacion_estado": "OK"
+        },
+        "latitud": 4.75867741589903,
+        "longitud": -74.09634787935158,
+        "altimetria": 2553.0,
+        "altitud": 2553.0,
+        "municipio_gps": "Bogotá",
+        "departamento_gps": "Bogotá, Distrito Capital",
+        "pais_gps": "Colombia",
+        "direccion_gps": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia"
+    },
+    "puntos": [
+        {
+            "nombre": "Tanque de salida",
+            "tipo": "Tanque",
+            "descripcion": "Tanque de inicio de aduccion",
+            "gps": {
+                "lat": 4.758722527169505,
+                "lon": -74.09634211088581,
+                "alt": null,
+                "altimetria": 2553.0,
+                "precision": 88.0,
+                "estado": "GPS_REAL",
+                "municipio": "Bogotá",
+                "departamento": "Bogotá, Distrito Capital",
+                "pais": "Colombia",
+                "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
+                "ubicacion_estado": "OK"
+            },
+            "latitud": 4.758722527169505,
+            "longitud": -74.09634211088581,
+            "altimetria": 2553.0,
+            "altitud": 2553.0,
+            "municipio": "Bogotá",
+            "departamento": "Bogotá, Distrito Capital",
+            "pais": "Colombia",
+            "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
+            "foto": null
+        },
+        {
+            "nombre": "Sencor caudal de salida",
+            "tipo": "Sensor",
+            "descripcion": "Sensor caulda de salida",
+            "gps": {
+                "lat": 4.758617999419472,
+                "lon": -74.09635250331729,
+                "alt": null,
+                "altimetria": 2553.0,
+                "precision": 92.0,
+                "estado": "GPS_REAL",
+                "municipio": "Bogotá",
+                "departamento": "Bogotá, Distrito Capital",
+                "pais": "Colombia",
+                "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
+                "ubicacion_estado": "OK"
+            },
+            "latitud": 4.758617999419472,
+            "longitud": -74.09635250331729,
+            "altimetria": 2553.0,
+            "altitud": 2553.0,
+            "municipio": "Bogotá",
+            "departamento": "Bogotá, Distrito Capital",
+            "pais": "Colombia",
+            "direccion": "Localidad Suba, Bogotá, Bogotá, Distrito Capital, RAP (Especial) Central, Colombia",
+            "foto": null
+        }
+    ],
+    "conexiones": [
+        {
+            "origen": "Tanque de salida",
+            "destino": "Sencor caudal de salida",
+            "distancia": 100.0,
+            "diametro": 50.0,
+            "material": "Hierro"
+        }
+    ]
+}

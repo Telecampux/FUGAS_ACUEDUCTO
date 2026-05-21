@@ -1,0 +1,205 @@
+# cartografia/telemetria.py
+
+import random
+import time
+
+import streamlit as st
+import pandas as pd
+
+
+def inicializar_telemetria():
+
+    if "telemetria_red" not in st.session_state:
+
+        st.session_state[
+            "telemetria_red"
+        ] = []
+
+
+def generar_telemetria():
+
+    return {
+
+        "timestamp": time.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        ),
+
+        "presion": round(
+
+            random.uniform(
+                10,
+                120
+            ),
+
+            2
+
+        ),
+
+        "caudal": round(
+
+            random.uniform(
+                1,
+                50
+            ),
+
+            2
+
+        ),
+
+        "temperatura": round(
+
+            random.uniform(
+                10,
+                35
+            ),
+
+            2
+
+        ),
+
+        "vibracion": round(
+
+            random.uniform(
+                0,
+                10
+            ),
+
+            2
+
+        )
+
+    }
+
+
+def ejecutar_telemetria():
+
+    inicializar_telemetria()
+
+    sensores = st.session_state.get(
+        "sensores_geo",
+        []
+    )
+
+    if len(sensores) == 0:
+
+        st.warning(
+            "No existen sensores"
+        )
+
+        return
+
+    st.header(
+        "📡 Telemetría operacional"
+    )
+
+    nombres = [
+
+        s["sensor"]
+        for s in sensores
+
+    ]
+
+    sensor = st.selectbox(
+        "Sensor telemetría",
+        nombres
+    )
+
+    iniciar = st.toggle(
+        "Activar telemetría"
+    )
+
+    metricas = st.empty()
+
+    tabla = st.empty()
+
+    if iniciar:
+
+        for _ in range(30):
+
+            muestra = generar_telemetria()
+
+            muestra["sensor"] = sensor
+
+            st.session_state[
+                "telemetria_red"
+            ].append(muestra)
+
+            historial = st.session_state[
+                "telemetria_red"
+            ][-20:]
+
+            df = pd.DataFrame(
+                historial
+            )
+
+            with metricas.container():
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+
+                    st.metric(
+                        "Presión",
+                        muestra["presion"]
+                    )
+
+                    st.metric(
+                        "Caudal",
+                        muestra["caudal"]
+                    )
+
+                with col2:
+
+                    st.metric(
+                        "Temperatura",
+                        muestra["temperatura"]
+                    )
+
+                    st.metric(
+                        "Vibración",
+                        muestra["vibracion"]
+                    )
+
+            tabla.dataframe(
+                df,
+                width='stretch'
+            )
+
+            # ====================================================
+            # ALERTAS
+            # ====================================================
+
+            if muestra["presion"] < 20:
+
+                st.warning(
+                    """
+                    Presión operacional baja.
+                    """
+                )
+
+            if muestra["vibracion"] > 8:
+
+                st.error(
+                    """
+                    Vibración elevada detectada.
+                    """
+                )
+
+            time.sleep(1)
+
+    else:
+
+        historial = st.session_state.get(
+            "telemetria_red",
+            []
+        )
+
+        if len(historial) > 0:
+
+            st.dataframe(
+
+                pd.DataFrame(historial),
+
+                width='stretch'
+
+            )

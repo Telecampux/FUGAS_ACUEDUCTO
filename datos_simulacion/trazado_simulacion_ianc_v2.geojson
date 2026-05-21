@@ -1,1 +1,0 @@
-{"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"nombre": "Tramo_Curvo_Simulacion", "material": "PVC", "diametro": "6 pulg"}, "geometry": {"type": "LineString", "coordinates": [[-74.1, 4.6], [-74.1005, 4.6], [-74.1005, 4.6005], [-74.101, 4.6005], [-74.1012, 4.6008]]}}]}
