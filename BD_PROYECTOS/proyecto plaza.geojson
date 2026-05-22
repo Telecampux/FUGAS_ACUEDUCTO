@@ -17,8 +17,8 @@
                 "DIAM_PULG": 3.94,
                 "MATERIAL": "HF",
                 "ESTADO": "OPERATIVO",
-                "CSV_A": "sensor_a_bogota.csv",
-                "CSV_B": "sensor_b_bogota.csv"
+                "CSV_A": "sensor_a_plaza.csv",
+                "CSV_B": "sensor_b_plaza.csv"
             },
             "geometry": {
                 "type": "LineString",

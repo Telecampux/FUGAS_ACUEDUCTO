@@ -94,8 +94,8 @@
             "diametro": 100.0,
             "material": "Hierro",
             "tipo_red": "ADUCCION",
-            "CSV_A": "sensor_a_bogota.csv",
-            "CSV_B": "sensor_b_bogota.csv"
+            "CSV_A": "sensor_a_plaza.csv",
+            "CSV_B": "sensor_b_plaza.csv"
         }
     ]
 }

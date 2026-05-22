@@ -93,8 +93,8 @@
             "distancia": 100.0,
             "diametro": 50.0,
             "material": "Hierro",
-            "CSV_A": "sensor_a_bogota.csv",
-            "CSV_B": "sensor_b_bogota.csv"
+            "CSV_A": "sensor_a_naranjal.csv",
+            "CSV_B": "sensor_b_naranjal.csv"
         }
     ]
 }

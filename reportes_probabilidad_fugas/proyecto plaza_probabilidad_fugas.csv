@@ -1,0 +1,2 @@
+proyecto,id_tramo,ubicacion,tipo_red,diam_pulg,material,estado_tramo,csv_a,csv_b,longitud_m,muestras,rho,snr,umbral_rho,umbral_snr,score_probabilidad,probabilidad_pct,categoria_probabilidad,x_fuga_m,lat_fuga,lon_fuga,observacion
+proyecto plaza,1,tanque - sensor,ADUCCION,3.94,HF,OPERATIVO,sensor_a_plaza.csv,sensor_b_plaza.csv,12.785,80000,0.10088527,59.5555,0.00683563,4.0034,10.0,100.0,MEDIA_PROBABILIDAD,5.814,4.75867781,-74.09633966,

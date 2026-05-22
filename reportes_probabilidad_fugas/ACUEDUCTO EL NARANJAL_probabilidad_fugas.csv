@@ -1,0 +1,2 @@
+proyecto,id_tramo,ubicacion,tipo_red,diam_pulg,material,estado_tramo,csv_a,csv_b,longitud_m,muestras,rho,snr,umbral_rho,umbral_snr,score_probabilidad,probabilidad_pct,categoria_probabilidad,x_fuga_m,lat_fuga,lon_fuga,observacion
+ACUEDUCTO EL NARANJAL,1,Tanque de salida - Sencor caudal de salida,DISTRIBUCION,1.97,HF,OPERATIVO,sensor_a_naranjal.csv,sensor_b_naranjal.csv,11.68,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,3.965,4.75868704,-74.09634564,

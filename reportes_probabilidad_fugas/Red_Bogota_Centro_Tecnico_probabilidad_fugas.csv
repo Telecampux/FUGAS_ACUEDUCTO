@@ -1,0 +1,6 @@
+proyecto,id_tramo,ubicacion,tipo_red,diam_pulg,material,estado_tramo,csv_a,csv_b,longitud_m,muestras,rho,snr,umbral_rho,umbral_snr,score_probabilidad,probabilidad_pct,categoria_probabilidad,x_fuga_m,lat_fuga,lon_fuga,observacion
+Red_Bogota_Centro_Tecnico,501,Calle 26,MATRIZ,16,ACERO,OPERATIVO,sensor_a_bogota.csv,sensor_b_bogota.csv,332.337,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,164.294,4.61414267,-74.07316523,
+Red_Bogota_Centro_Tecnico,502,Calle 28,SECUNDARIA,12,ACERO,OPERATIVO,sensor_a_bogota.csv,sensor_b_bogota.csv,332.336,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,164.293,4.61784267,-74.07116523,
+Red_Bogota_Centro_Tecnico,503,Carrera 10,DISTRIBUCION,8,HF,OPERATIVO,sensor_a_bogota.csv,sensor_b_bogota.csv,467.338,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,231.794,4.61533516,-74.07350802,
+Red_Bogota_Centro_Tecnico,504,Carrera 13,DISTRIBUCION,6,PVC,OPERATIVO,sensor_a_bogota.csv,sensor_b_bogota.csv,467.337,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,231.794,4.61663516,-74.07080802,
+Red_Bogota_Centro_Tecnico,505,Carrera 13,SECUNDARIA,8,HF,OPERATIVO,sensor_a_bogota.csv,sensor_b_bogota.csv,496.956,80000,0.7465926,349.5573,0.0080865,4.0043,10.0,100.0,ALTA_PROBABILIDAD,246.603,4.62048491,-74.06880755,
