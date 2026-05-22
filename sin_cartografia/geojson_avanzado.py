@@ -118,7 +118,7 @@ def exportar_geojson_avanzado():
                     "material"
                 ],
 
-                "diametro": conexion[
+                "diam_pulg": conexion[
                     "diametro"
                 ],
 

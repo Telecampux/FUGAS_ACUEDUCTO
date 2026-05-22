@@ -86,7 +86,7 @@ def agregar_capa_conexiones(
 
         Material: {conexion['material']}
         | Distancia: {conexion['distancia']} m
-        | Diámetro: {conexion['diametro']} mm
+        | Diámetro: {conexion['diametro']} pulgadas
 
         """
 

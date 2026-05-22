@@ -47,6 +47,7 @@ def registrar_conexion(
         "distancia": distancia,
 
         "diametro": diametro,
+        "unidad_diametro": "pulgadas",
 
         "material": material,
 

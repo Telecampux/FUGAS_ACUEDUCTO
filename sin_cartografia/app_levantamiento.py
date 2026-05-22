@@ -230,7 +230,7 @@ def administrar_conexiones(nombres):
     )
 
     nuevo_diametro = st.number_input(
-        "Diametro conexion (mm)",
+        "Diametro conexion (pulgadas)",
         min_value=0.0,
         value=float(conexion.get("diametro", 0.0)),
         key=f"editar_conexion_diametro_{indice}"
@@ -997,7 +997,7 @@ if menu == "Conexiones":
         )
 
         diametro = st.number_input(
-            "Diametro (mm)",
+            "Diametro (pulgadas)",
             min_value=0.0,
             key="conexion_diametro"
         )

@@ -96,7 +96,7 @@ def exportar_shapefile():
         )
 
         shp_conexiones.field(
-            "diametro",
+            "diam_pulg",
             "N"
         )
 

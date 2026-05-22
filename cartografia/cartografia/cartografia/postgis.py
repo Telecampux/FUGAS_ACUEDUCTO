@@ -93,7 +93,7 @@ def crear_tablas_postgis(
 
             material TEXT,
 
-            diametro NUMERIC,
+            diam_pulg NUMERIC,
 
             distancia NUMERIC,
 
@@ -205,7 +205,7 @@ def exportar_postgis(
                 origen,
                 destino,
                 material,
-                diametro,
+                diam_pulg,
                 distancia,
                 geom
 

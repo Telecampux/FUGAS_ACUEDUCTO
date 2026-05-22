@@ -27,7 +27,7 @@
                 "ID_TRAMO": 1,
                 "UBICACION": "Tanque de salida - Sencor caudal de salida",
                 "TIPO_RED": "DISTRIBUCION",
-                "DIAM_PULG": 50.0,
+                "DIAM_PULG": 1.97,
                 "MATERIAL": "Hierro",
                 "ESTADO": "OPERATIVO"
             }

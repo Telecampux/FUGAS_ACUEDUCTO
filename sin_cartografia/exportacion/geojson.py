@@ -28,7 +28,7 @@ def _diametro_pulgadas(conexion):
         return None
 
     unidad = str(
-        conexion.get("unidad_diametro", "mm")
+        conexion.get("unidad_diametro", "pulgadas")
     ).strip().lower()
 
     if unidad in ("pulg", "pulgada", "pulgadas", "in", "inch", "inches"):

@@ -304,7 +304,7 @@ if menu == "Conexiones":
         )
 
         diametro = st.number_input(
-            "Diámetro (mm)",
+            "Diámetro (pulgadas)",
             min_value=0.0,
             key="conexion_diametro"
         )

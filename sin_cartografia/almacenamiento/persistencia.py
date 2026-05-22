@@ -188,9 +188,16 @@ def convertir_geojson_a_proyecto(contenido, nombre_archivo=None):
                 or propiedades.get("distancia")
                 or 0.0,
                 "diametro": propiedades.get("DIAM_PULG")
+                or propiedades.get("diam_pulg")
                 or propiedades.get("diametro")
                 or propiedades.get("DIAMETRO")
                 or 0.0,
+                "unidad_diametro": "pulgadas"
+                if (
+                    propiedades.get("DIAM_PULG")
+                    or propiedades.get("diam_pulg")
+                )
+                else propiedades.get("unidad_diametro", "pulgadas"),
                 "material": propiedades.get("MATERIAL")
                 or propiedades.get("material")
                 or "",
